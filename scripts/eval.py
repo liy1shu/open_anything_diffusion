@@ -1,19 +1,21 @@
+from pathlib import Path
+
 import hydra
 import lightning as L
 import omegaconf
+import pandas as pd
+import rpad.partnet_mobility_utils.dataset as rpd
+import rpad.pyg.nets.pointnet2 as pnp
 import torch
-import torch.utils._pytree as pytree
+import tqdm
 import wandb
+from flowbot3d.models.artflownet import flow_metrics
 
-from python_ml_project_template.datasets.cifar10 import CIFAR10DataModule
-from python_ml_project_template.metrics.classification import get_metrics
-from python_ml_project_template.models.classifier import ClassifierInferenceModule
-from python_ml_project_template.utils.script_utils import (
-    PROJECT_ROOT,
-    create_model,
-    flatten_outputs,
-    match_fn,
+from python_ml_project_template.datasets.flowbot import FlowBotDataModule
+from python_ml_project_template.models.flow_predictor import (
+    FlowPredictorInferenceModule,
 )
+from python_ml_project_template.utils.script_utils import PROJECT_ROOT, match_fn
 
 
 @torch.no_grad()
@@ -38,14 +40,14 @@ def main(cfg):
     # Should be the same one as in training, but we're gonna use val+test
     # dataloaders.
     ######################################################################
-
-    datamodule = CIFAR10DataModule(
+    datamodule = FlowBotDataModule(
         root=cfg.dataset.data_dir,
         batch_size=cfg.inference.batch_size,
         num_workers=cfg.resources.num_workers,
+        n_proc=cfg.inference.n_proc,  # Add n_proc
     )
-    # Gotta call this in order to establish the dataloaders.
-    datamodule.setup("predict")
+    train_loader = datamodule.train_dataloader()
+    val_loader = datamodule.val_dataloader()
 
     ######################################################################
     # Set up logging in WandB.
@@ -83,10 +85,9 @@ def main(cfg):
     # We'll also load the weights.
     ######################################################################
 
-    network = create_model(
-        image_size=cfg.dataset.image_size,
-        num_classes=cfg.dataset.num_classes,
-        model_cfg=cfg.model,
+    mask_channel = 1 if cfg.inference.mask_input_channel else 0
+    network = pnp.PN2Dense(
+        in_channels=mask_channel, out_channels=3, p=pnp.PN2DenseParams()
     )
 
     # Get the checkpoint file. If it's a wandb reference, download.
@@ -118,7 +119,7 @@ def main(cfg):
     # environment, for instance.
     ######################################################################
 
-    model = ClassifierInferenceModule(network)
+    model = FlowPredictorInferenceModule(network, inference_config=cfg.inference)
 
     ######################################################################
     # Create the trainer.
@@ -145,35 +146,70 @@ def main(cfg):
     # function is.
     ######################################################################
 
-    train_outputs, val_outputs, test_outputs = trainer.predict(
-        model,
-        dataloaders=[
-            *datamodule.val_dataloader(),  # There are two different loaders (train_val and val).
-            datamodule.test_dataloader(),
-        ],
+    dataloaders = [
+        (datamodule.train_dataloader(), "train"),
+        (datamodule.val_dataloader(), "val"),
+        (datamodule.unseen_dataloader(), "test"),
+    ]
+
+    all_objs = (
+        rpd.UMPNET_TRAIN_TRAIN_OBJS + rpd.UMPNET_TRAIN_TEST_OBJS + rpd.UMPNET_TEST_OBJS
     )
+    id_to_obj_class = {obj_id: obj_class for obj_id, obj_class in all_objs}
 
-    for outputs_list, name in [
-        (train_outputs, "train"),
-        (val_outputs, "val"),
-        (test_outputs, "test"),
-    ]:
-        # Put everything on CPU, and flatten a list of dicts into one dict.
-        out_cpu = [pytree.tree_map(lambda x: x.cpu(), o) for o in outputs_list]
-        outputs = flatten_outputs(out_cpu)
+    for loader, name in dataloaders:
+        metrics = []
 
-        # Compute the metrics.
-        metrics = get_metrics(outputs["preds"], outputs["labels"])
-        global_acc = metrics["global_acc"]
-        macro_acc = metrics["macro_acc"]
-        acc_df = metrics["acc_df"]
+        for batch in tqdm.tqdm(loader):
+            preds = model(batch.to(model.device))
+
+            st = 0
+            for data in batch.to_data_list():
+                f_pred = preds[st : st + data.num_nodes]
+                f_ix = data.mask.bool()
+                f_target = data.flow
+
+                rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
+
+                metrics.append(
+                    {
+                        "id": data.id,
+                        "obj_class": id_to_obj_class[data.id],
+                        "metrics": {
+                            "rmse": rmse.cpu().item(),
+                            "cos_dist": cos_dist.cpu().item(),
+                            "mag_error": mag_error.cpu().item(),
+                        },
+                    }
+                )
+
+                st += data.num_nodes
+
+        rows = [
+            (
+                m["id"],
+                m["obj_class"],
+                m["metrics"]["rmse"],
+                m["metrics"]["cos_dist"],
+                m["metrics"]["mag_error"],
+            )
+            for m in metrics
+        ]
+        raw_df = pd.DataFrame(
+            rows, columns=["id", "category", "rmse", "cos_dist", "mag_error"]
+        )
+        df = raw_df.groupby("category").mean(numeric_only=True)
+        df.loc["unweighted_mean"] = raw_df.mean(numeric_only=True)
+        df.loc["class_mean"] = df.mean()
+
+        out_file = Path(cfg.metric_output_dir) / f"{cfg.dataset.name}_{name}.csv"
+        if out_file.exists():
+            raise ValueError(f"{out_file} already exists...")
+        df.to_csv(out_file, float_format="%.3f")
 
         # Log the metrics + table to wandb.
-        run.summary[f"{name}_true_accuracy"] = global_acc
-        run.summary[f"{name}_class_balanced_accuracy"] = macro_acc
-
-        table = wandb.Table(dataframe=acc_df)
-        run.log({f"{name}_accuracy_table": table})
+        table = wandb.Table(dataframe=df)
+        run.log({f"{name}_metric_table": table})
 
 
 if __name__ == "__main__":

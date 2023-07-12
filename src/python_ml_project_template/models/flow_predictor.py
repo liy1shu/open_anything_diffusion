@@ -152,7 +152,7 @@ class FlowPredictorInferenceModule(L.LightningModule):
 
         return flow
 
-    # TODO: the predict step input is different now, pay attention
+    # the predict step input is different now, pay attention
     def predict_step(self, xyz: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """Predict the flow for a single object. The point cloud should
         come straight from the maniskill processed observation function.
