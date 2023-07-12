@@ -3,17 +3,17 @@ import json
 import hydra
 import lightning as L
 import omegaconf
+import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import wandb
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
-from python_ml_project_template.datasets.cifar10 import CIFAR10DataModule
-from python_ml_project_template.models.classifier import ClassifierTrainingModule
+from python_ml_project_template.datasets.flowbot import FlowBotDataModule
+from python_ml_project_template.models.flow_predictor import FlowPredictorTrainingModule
 from python_ml_project_template.utils.script_utils import (
     PROJECT_ROOT,
     LogPredictionSamplesCallback,
-    create_model,
     match_fn,
 )
 
@@ -50,11 +50,16 @@ def main(cfg):
     # or with an if statement, or by using hydra.instantiate.
     ######################################################################
 
-    datamodule = CIFAR10DataModule(
+    # Create FlowBot dataset
+    datamodule = FlowBotDataModule(
         root=cfg.dataset.data_dir,
         batch_size=cfg.training.batch_size,
         num_workers=cfg.resources.num_workers,
+        n_proc=cfg.training.n_proc,  # Add n_proc
     )
+    train_loader = datamodule.train_dataloader()
+    val_loader = datamodule.val_dataloader()
+    unseen_loader = datamodule.unseen_dataloader()
 
     ######################################################################
     # Create the network(s) which will be trained by the Training Module.
@@ -74,10 +79,10 @@ def main(cfg):
 
     # Model architecture is dataset-dependent, so we have a helper
     # function to create the model (while separating out relevant vals).
-    network = create_model(
-        image_size=cfg.dataset.image_size,
-        num_classes=cfg.dataset.num_classes,
-        model_cfg=cfg.model,
+
+    mask_channel = 1 if cfg.training.mask_input_channel else 0
+    network = pnp.PN2Dense(
+        in_channels=mask_channel, out_channels=3, p=pnp.PN2DenseParams()
     )
 
     ######################################################################
@@ -87,7 +92,7 @@ def main(cfg):
     # and the logging.
     ######################################################################
 
-    model = ClassifierTrainingModule(network, training_cfg=cfg.training)
+    model = FlowPredictorTrainingModule(network, training_cfg=cfg.training)
 
     ######################################################################
     # Set up logging in WandB.
@@ -137,7 +142,10 @@ def main(cfg):
         logger=logger,
         callbacks=[
             # Callback which logs whatever visuals (i.e. dataset examples, preds, etc.) we want.
-            LogPredictionSamplesCallback(logger),
+            LogPredictionSamplesCallback(
+                logger=logger,
+                eval_per_n_epoch=cfg.training.check_val_every_n_epoch,
+            ),
             # This checkpoint callback saves the latest model during training, i.e. so we can resume if it crashes.
             # It saves everything, and you can load by referencing last.ckpt.
             ModelCheckpoint(
@@ -152,7 +160,7 @@ def main(cfg):
             ModelCheckpoint(
                 dirpath=cfg.lightning.checkpoint_dir,
                 filename="{epoch}-{step}-{val_loss:.2f}-weights-only",
-                monitor="val_loss",
+                monitor="val/loss",
                 mode="min",
                 save_weights_only=True,
             ),
@@ -179,7 +187,7 @@ def main(cfg):
     # Train the model.
     ######################################################################
 
-    trainer.fit(model, datamodule=datamodule)
+    trainer.fit(model, train_loader, [train_loader, val_loader, unseen_loader])
 
 
 if __name__ == "__main__":

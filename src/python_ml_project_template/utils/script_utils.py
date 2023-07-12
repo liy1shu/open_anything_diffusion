@@ -1,32 +1,17 @@
+import abc
 import os
 import pathlib
-from typing import Dict, List, Sequence, Union, cast
+from typing import Dict, List, Literal, Protocol, Sequence, Union, cast
 
+import lightning.pytorch as pl
+import numpy as np
 import torch
 import torch.utils._pytree as pytree
-import torchvision as tv
-import wandb
+import torch_geometric.data as tgd
 from lightning.pytorch import Callback
-from pytorch_lightning.loggers import WandbLogger
+from lightning.pytorch.loggers import WandbLogger
 
 PROJECT_ROOT = str(pathlib.Path(__file__).parent.parent.parent.parent.resolve())
-
-
-def create_model(image_size, num_classes, model_cfg):
-    if model_cfg.name == "vit":
-        return tv.models.VisionTransformer(
-            image_size=image_size,
-            num_classes=num_classes,
-            hidden_dim=model_cfg.hidden_dim,
-            num_heads=model_cfg.num_heads,
-            num_layers=model_cfg.num_layers,
-            patch_size=model_cfg.patch_size,
-            representation_size=model_cfg.representation_size,
-            mlp_dim=model_cfg.mlp_dim,
-            dropout=model_cfg.dropout,
-        )
-    else:
-        raise ValueError("not a valid model name")
 
 
 # This matching function
@@ -60,9 +45,45 @@ def flatten_outputs(outputs: List[TorchTree]) -> TorchTree:
     return cast(TorchTree, output_dict)
 
 
+class CanMakePlots(Protocol):
+    @staticmethod
+    @abc.abstractmethod
+    def make_plots(preds, batch: tgd.Batch):
+        pass
+
+
+class LightningModuleWithPlots(pl.LightningModule, CanMakePlots):
+    pass
+
+
+# TODO: Change
 class LogPredictionSamplesCallback(Callback):
-    def __init__(self, logger: WandbLogger):
+    def __init__(self, logger: WandbLogger, eval_per_n_epoch):
         self.logger = logger
+        self.eval_per_n_epoch = eval_per_n_epoch
+
+    @staticmethod
+    def eval_log_random_sample(
+        trainer: pl.Trainer,
+        pl_module: LightningModuleWithPlots,
+        outputs,
+        batch,
+        prefix: Literal["train", "val", "unseen"],
+    ):
+        preds = outputs["preds"]
+        random_id = np.random.randint(0, len(batch))
+        preds = preds[random_id]
+        data = batch.get_example(random_id)
+        plots = pl_module.make_plots(preds.cpu(), data.cpu())
+
+        assert trainer.logger is not None and isinstance(trainer.logger, WandbLogger)
+        trainer.logger.experiment.log(
+            {
+                **{f"{prefix}/{plot_name}": plot for plot_name, plot in plots.items()},
+                "global_step": trainer.global_step,
+            },
+            step=trainer.global_step,
+        )
 
     def on_validation_batch_end(
         self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
@@ -71,25 +92,9 @@ class LogPredictionSamplesCallback(Callback):
 
         # `outputs` comes from `LightningModule.validation_step`
         # which corresponds to our model predictions in this case
-
-        # Let's log 20 sample image predictions from the first batch
-        if batch_idx == 0:
-            n = 20
-            x, y = batch
-            images = [img for img in x[:n]]
-            outs = outputs["preds"][:n].argmax(dim=1)
-            captions = [
-                f"Ground Truth: {y_i} - Prediction: {y_pred}"
-                for y_i, y_pred in zip(y[:n], outs)
-            ]
-
-            # Option 1: log images with `WandbLogger.log_image`
-            self.logger.log_image(key="sample_images", images=images, caption=captions)
-
-            # Option 2: log images and predictions as a W&B Table
-            columns = ["image", "ground truth", "prediction"]
-            data = [
-                [wandb.Image(x_i), y_i, y_pred]
-                for x_i, y_i, y_pred in list(zip(x[:n], y[:n], outs))
-            ]
-            self.logger.log_table(key="sample_table", columns=columns, data=data)
+        if batch_idx != 0:
+            return
+        dataloader_names = ["train", "val", "unseen"]
+        name = dataloader_names[dataloader_idx]
+        if pl_module.current_epoch % self.eval_per_n_epoch == 0:
+            self.eval_log_random_sample(trainer, pl_module, outputs, batch, name)
