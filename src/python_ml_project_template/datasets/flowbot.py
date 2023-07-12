@@ -69,9 +69,9 @@ class FlowBotDataModule(L.LightningDataModule):
             n_proc_per_worker=n_proc,
         )
 
-    def train_dataloader(self):
+    def train_dataloader(self, shuffle=True):
         return tgl.DataLoader(
-            self.train_dset, self.batch_size, shuffle=True, num_workers=0
+            self.train_dset, self.batch_size, shuffle=shuffle, num_workers=0
         )
 
     def val_dataloader(self):
