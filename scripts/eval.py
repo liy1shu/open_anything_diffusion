@@ -1,5 +1,7 @@
+import os
 from pathlib import Path
 
+os.environ["WANDB_SILENT"] = "true"
 import hydra
 import lightning as L
 import omegaconf
@@ -147,7 +149,7 @@ def main(cfg):
     ######################################################################
 
     dataloaders = [
-        (datamodule.train_dataloader(), "train"),
+        (datamodule.train_dataloader(shuffle=False), "train"),
         (datamodule.val_dataloader(), "val"),
         (datamodule.unseen_dataloader(), "test"),
     ]
@@ -159,10 +161,12 @@ def main(cfg):
 
     for loader, name in dataloaders:
         metrics = []
+        outputs = trainer.predict(
+            model,
+            dataloaders=[loader],
+        )
 
-        for batch in tqdm.tqdm(loader):
-            preds = model(batch.to(model.device))
-
+        for batch, preds in zip(tqdm.tqdm(loader), outputs):
             st = 0
             for data in batch.to_data_list():
                 f_pred = preds[st : st + data.num_nodes]
