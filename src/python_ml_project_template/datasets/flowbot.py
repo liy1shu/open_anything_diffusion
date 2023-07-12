@@ -7,8 +7,7 @@ from flowbot3d.datasets.flow_dataset_pyg import Flowbot3DPyGDataset
 from rpad.pyg.dataset import CachedByKeyDataset
 
 
-# Create FlowTrajectory datamodule
-class FlowTrajectoryDataModule(L.LightningDataModule):
+class FlowBotDataModule(L.LightningDataModule):
     def __init__(
         self, root, batch_size, num_workers, n_proc, randomize_camera: bool = True
     ):

@@ -49,7 +49,7 @@ class FlowTrajectoryPyGDataset(tgd.Dataset):
     def get_processed_dir(randomize_joints, randomize_camera):
         joint_chunk = "rj" if randomize_joints else "sj"
         camera_chunk = "rc" if randomize_camera else "sc"
-        return f"processed_{joint_chunk}_{camera_chunk}"
+        return f"processed_traj_{joint_chunk}_{camera_chunk}"
 
     def get_data(self, obj_id: str, seed=None) -> FlowTrajectoryTGData:
         data_dict = self.dataset.get_data(obj_id, seed)

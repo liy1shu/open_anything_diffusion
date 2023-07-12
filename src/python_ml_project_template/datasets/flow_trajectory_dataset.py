@@ -15,6 +15,12 @@ class FlowTrajectoryData(TypedDict):
     mask: npt.NDArray[np.bool_]  #  (N,): Mask the point of interest.
 
 
+"""
+Changes made:
+Apart from flow, also return new pos (P_world_new) and new joint angles (target_jas)
+"""
+
+
 def compute_normalized_flow(
     P_world: npt.NDArray[np.float32],
     T_world_base: npt.NDArray[np.float32],
@@ -102,7 +108,7 @@ def compute_flow_trajectory(
         )
         if mode == "delta":
             flow_trajectory[step, :, :] = P_world_new - P_world  # Save the delta
-        if mode == "point":
+        elif mode == "point":
             flow_trajectory[step, :, :] = P_world_new  # Save the waypoints
         # Update pos
         P_world = P_world_new
