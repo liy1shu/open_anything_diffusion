@@ -36,8 +36,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             data_keys=rpd.UMPNET_TRAIN_TRAIN_OBJ_IDS,
             root=root,
             processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
-                True,
-                randomize_camera,
+                True, randomize_camera, trajectory_len, mode
             ),
             n_repeat=100,
             n_workers=num_workers,
@@ -56,8 +55,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             data_keys=rpd.UMPNET_TRAIN_TEST_OBJ_IDS,
             root=root,
             processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
-                True,
-                randomize_camera,
+                True, randomize_camera, trajectory_len, mode
             ),
             n_repeat=1,
             n_workers=num_workers,
@@ -76,8 +74,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             data_keys=rpd.UMPNET_TEST_OBJ_IDS,
             root=root,
             processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
-                True,
-                randomize_camera,
+                True, randomize_camera, trajectory_len, mode
             ),
             n_repeat=1,
             n_workers=num_workers,

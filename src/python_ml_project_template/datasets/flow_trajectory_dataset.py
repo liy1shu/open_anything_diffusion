@@ -66,12 +66,13 @@ def compute_normalized_flow(
             labelmap,
             T_world_base,
         )
-        # current_jas[linkname] += 0.01  # Articulate the joint angles
+        # Articulate the joint angles
         chain = pm_raw_data.obj.get_chain(linkname)
         c_jas = [current_jas[joint.name] for joint in chain]
         target_jas[pm_raw_data.obj.get_joint_by_child(linkname).name] += 0.01
 
         link_flow = P_world_new - P_world
+        P_world = P_world_new
         flow += link_flow
 
     largest_mag: float = np.linalg.norm(flow, axis=-1).max()
@@ -93,8 +94,11 @@ def compute_flow_trajectory(
     pm_raw_data,
     linknames="all",
 ):
-    assert mode in ["delta", "point"]
-    flow_trajectory = np.zeros((K, P_world.shape[0], 3))
+    assert mode in ["delta", "point", "both"]
+    if mode == "both":
+        flow_trajectory = np.zeros((K, P_world.shape[0], 6))
+    else:
+        flow_trajectory = np.zeros((K, P_world.shape[0], 3))
     for step in range(K):
         # compute the delta / waypoint & rotate and then calculate another
         P_world_new, current_jas, flow = compute_normalized_flow(
@@ -107,9 +111,11 @@ def compute_flow_trajectory(
             linknames,
         )
         if mode == "delta":
-            flow_trajectory[step, :, :] = P_world_new - P_world  # Save the delta
+            flow_trajectory[step, :, :] = flow  # Save the delta
         elif mode == "point":
             flow_trajectory[step, :, :] = P_world_new  # Save the waypoints
+        elif mode == "both":  # For visualization
+            flow_trajectory[step, :, :] = np.concatenate([P_world_new, flow], axis=-1)
         # Update pos
         P_world = P_world_new
     return flow_trajectory.transpose(1, 0, 2)
