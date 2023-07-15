@@ -46,21 +46,17 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
 
     def forward(self, data) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
-        print("mask:", data.mask.shape)
         if self.mask_input_channel:
             data.x = data.mask.reshape(len(data.mask), 1)
-        print("x:", data.x.shape)
 
         # Run the model.
         flow = typing.cast(torch.Tensor, self.network(data))
-        print("flow:", flow.shape)
 
         return flow
 
     def _step(self, batch: tgd.Batch, mode):
         # Make a prediction.
         f_pred = self(batch)
-        print("pred:", f_pred.shape)
 
         # Compute the loss.
         n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
@@ -70,7 +66,6 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
         elif self.mode == "point":
             f_target = batch.point.reshape(batch.point.shape[0], -1)
 
-        print("target:", f_target.shape)
         loss = artflownet_loss(f_pred, f_target, n_nodes)
 
         # Compute some metrics on flow-only regions.
@@ -110,7 +105,9 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
     @staticmethod
     def make_plots(preds, batch: tgd.Batch) -> Dict[str, go.Figure]:
         obj_id = batch.id
-        pos = batch.point[:, -2, :].numpy()  # The last step's beinning pos
+        pos = (
+            batch.point[:, -2, :].numpy() if batch.point.shape[1] >= 2 else batch.pos
+        )  # The last step's beinning pos
         mask = batch.mask.numpy()
         f_target = batch.delta[:, -1, :]
         f_pred = preds.reshape(preds.shape[0], -1, 3)[:, -1, :]

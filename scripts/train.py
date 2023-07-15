@@ -1,8 +1,5 @@
 import json
 
-# Disable wandb
-import os
-
 import hydra
 import lightning as L
 import omegaconf
@@ -25,7 +22,7 @@ from python_ml_project_template.utils.script_utils import (
     match_fn,
 )
 
-os.environ["WANDB_SILENT"] = "true"
+# Disable wandb
 
 
 @hydra.main(config_path="../configs", config_name="train", version_base="1.3")
