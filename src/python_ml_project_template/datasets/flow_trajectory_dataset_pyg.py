@@ -13,7 +13,8 @@ class FlowTrajectoryTGData(Protocol):
     id: str  # Object ID.
 
     pos: torch.Tensor  # Points in the point cloud.
-    trajectory: torch.Tensor  # instantaneous positive 3D flow trajectories.
+    delta: torch.Tensor  # instantaneous positive 3D flow trajectories.
+    point: torch.Tensor  # the trajectory waypoints
     mask: torch.Tensor  # Mask of the part of interest.
 
 
@@ -25,7 +26,6 @@ class FlowTrajectoryPyGDataset(tgd.Dataset):
         randomize_joints: bool = True,
         randomize_camera: bool = True,
         trajectory_len: int = 5,
-        mode: str = "delta",
         n_points: Optional[int] = 1200,
     ) -> None:
         super().__init__()
@@ -35,7 +35,6 @@ class FlowTrajectoryPyGDataset(tgd.Dataset):
             randomize_joints,
             randomize_camera,
             trajectory_len,
-            mode,
             n_points,
         )
 
@@ -46,18 +45,18 @@ class FlowTrajectoryPyGDataset(tgd.Dataset):
         return self.get_data(self.dataset._dataset._ids[index], seed=None)
 
     @staticmethod
-    def get_processed_dir(randomize_joints, randomize_camera, trajectory_len, mode):
+    def get_processed_dir(randomize_joints, randomize_camera, trajectory_len):
         joint_chunk = "rj" if randomize_joints else "sj"
         camera_chunk = "rc" if randomize_camera else "sc"
-        return f"processed_{mode}_{trajectory_len}_{joint_chunk}_{camera_chunk}"
+        return f"processed_{trajectory_len}_{joint_chunk}_{camera_chunk}"
 
     def get_data(self, obj_id: str, seed=None) -> FlowTrajectoryTGData:
         data_dict = self.dataset.get_data(obj_id, seed)
-
         data = tgd.Data(
             id=data_dict["id"],
             pos=torch.from_numpy(data_dict["pos"]).float(),
-            trajectory=torch.from_numpy(data_dict["trajectory"]).float(),
+            delta=torch.from_numpy(data_dict["delta"]).float(),
+            point=torch.from_numpy(data_dict["point"]).float(),
             mask=torch.from_numpy(data_dict["mask"]).float(),
         )
         return cast(FlowTrajectoryTGData, data)

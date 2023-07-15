@@ -6,9 +6,30 @@ import plotly.graph_objects as go
 import rpad.visualize_3d.plots as v3p
 import torch
 import torch_geometric.data as tgd
+from flowbot3d.grasping.agents.flowbot3d import FlowNetAnimation
 from flowbot3d.models.artflownet import artflownet_loss, flow_metrics
 from plotly.subplots import make_subplots
 from torch import optim
+
+
+def make_trajectory_animation(traj_data):  # Make trajectory animation
+    animation = FlowNetAnimation()
+    for i in range(traj_data["point"].shape[-2]):
+        pcd = (
+            traj_data["pos"].detach().numpy()
+            if i == 0
+            else traj_data["point"][:, (i - 1)].detach().numpy()
+        )
+        mask = traj_data["mask"].detach().numpy()
+        flow = traj_data["delta"][:, i].detach().numpy()
+        animation.add_trace(
+            torch.as_tensor(pcd),
+            torch.as_tensor([pcd]),
+            torch.as_tensor([flow]),
+            "red",
+        )
+
+    return animation.animate()
 
 
 # Flow predictor
@@ -19,25 +40,37 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
         self.lr = training_cfg.lr
         self.batch_size = training_cfg.batch_size
         self.mask_input_channel = training_cfg.mask_input_channel
+        self.mode = training_cfg.mode
+        self.trajectory_len = training_cfg.trajectory_len
+        assert self.mode in ["delta", "point"]
 
     def forward(self, data) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
+        print("mask:", data.mask.shape)
         if self.mask_input_channel:
             data.x = data.mask.reshape(len(data.mask), 1)
+        print("x:", data.x.shape)
 
         # Run the model.
         flow = typing.cast(torch.Tensor, self.network(data))
+        print("flow:", flow.shape)
 
         return flow
 
     def _step(self, batch: tgd.Batch, mode):
         # Make a prediction.
         f_pred = self(batch)
+        print("pred:", f_pred.shape)
 
         # Compute the loss.
         n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
         f_ix = batch.mask.bool()
-        f_target = batch.trajectory
+        if self.mode == "delta":
+            f_target = batch.delta.reshape(batch.delta.shape[0], -1)
+        elif self.mode == "point":
+            f_target = batch.point.reshape(batch.point.shape[0], -1)
+
+        print("target:", f_target.shape)
         loss = artflownet_loss(f_pred, f_target, n_nodes)
 
         # Compute some metrics on flow-only regions.
@@ -53,8 +86,7 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
             add_dataloader_idx=False,
             batch_size=len(batch),
         )
-
-        return f_pred.reshape(len(batch), -1, 3), loss
+        return f_pred.reshape(f_pred.shape[0], -1, 3), loss
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=self.lr)
@@ -65,7 +97,7 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
 
     def training_step(self, batch: tgd.Batch, batch_id):  # type: ignore
         self.train()
-        f_pred, loss = self._step(batch, "train")
+        _, loss = self._step(batch, "train")
         return loss
 
     def validation_step(self, batch: tgd.Batch, batch_id, dataloader_idx=0):  # type: ignore
@@ -78,10 +110,10 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
     @staticmethod
     def make_plots(preds, batch: tgd.Batch) -> Dict[str, go.Figure]:
         obj_id = batch.id
-        pos = batch.pos.numpy()
+        pos = batch.point[:, -2, :].numpy()  # The last step's beinning pos
         mask = batch.mask.numpy()
-        f_target = batch.flow
-        f_pred = preds
+        f_target = batch.delta[:, -1, :]
+        f_pred = preds.reshape(preds.shape[0], -1, 3)[:, -1, :]
 
         fig = make_subplots(
             rows=2,

@@ -11,7 +11,8 @@ from rpad.partnet_mobility_utils.data import PMObject
 class FlowTrajectoryData(TypedDict):
     id: str
     pos: npt.NDArray[np.float32]  # (N, 3): Point cloud observation.
-    trajectory: npt.NDArray[np.float32]  # (N, K, 3): Ground-truth flow.
+    delta: npt.NDArray[np.float32]  # (N, K, traj_len * 3): Ground-truth flow.
+    point: npt.NDArray[np.float32]  # (N, K, traj_len * 3): Ground-truth waypoints.
     mask: npt.NDArray[np.bool_]  #  (N,): Mask the point of interest.
 
 
@@ -82,10 +83,9 @@ def compute_normalized_flow(
     return P_world_new, target_jas, normalized_flow
 
 
-# Compute trajectories as K deltas / waypoints
+# Compute trajectories as K deltas & waypoints
 def compute_flow_trajectory(
     K,
-    mode,
     P_world,
     T_world_base,
     current_jas,
@@ -94,11 +94,7 @@ def compute_flow_trajectory(
     pm_raw_data,
     linknames="all",
 ):
-    assert mode in ["delta", "point", "both"]
-    if mode == "both":
-        flow_trajectory = np.zeros((K, P_world.shape[0], 6))
-    else:
-        flow_trajectory = np.zeros((K, P_world.shape[0], 3))
+    flow_trajectory = np.zeros((K, P_world.shape[0], 6))
     for step in range(K):
         # compute the delta / waypoint & rotate and then calculate another
         P_world_new, current_jas, flow = compute_normalized_flow(
@@ -110,15 +106,12 @@ def compute_flow_trajectory(
             pm_raw_data,
             linknames,
         )
-        if mode == "delta":
-            flow_trajectory[step, :, :] = flow  # Save the delta
-        elif mode == "point":
-            flow_trajectory[step, :, :] = P_world_new  # Save the waypoints
-        elif mode == "both":  # For visualization
-            flow_trajectory[step, :, :] = np.concatenate([P_world_new, flow], axis=-1)
+        flow_trajectory[step, :, :] = np.concatenate(
+            [P_world_new, flow], axis=-1
+        )  # [:3]: waypoints, [3:]: deltas
         # Update pos
         P_world = P_world_new
-    return flow_trajectory.transpose(1, 0, 2)
+    return flow_trajectory.transpose(1, 0, 2)  # Point * traj_len * 6
 
 
 class FlowTrajectoryDataset:
@@ -129,7 +122,6 @@ class FlowTrajectoryDataset:
         randomize_joints: bool = True,
         randomize_camera: bool = True,
         trajectory_len: int = 5,
-        mode: str = "delta",
         n_points: Optional[int] = None,
     ) -> None:
         """The FlowBot3D dataset. Set n_points depending if you can handle ragged batches or not.
@@ -148,7 +140,6 @@ class FlowTrajectoryDataset:
         self.randomize_joints = randomize_joints
         self.randomize_camera = randomize_camera
         self.trajectory_len = trajectory_len
-        self.mode = mode
         self.n_points = n_points
 
     def get_data(self, obj_id: str, seed=None) -> FlowTrajectoryData:
@@ -167,7 +158,6 @@ class FlowTrajectoryDataset:
         # Compute the flow trajectory
         flow_trajectory = compute_flow_trajectory(
             K=self.trajectory_len,
-            mode=self.mode,
             P_world=pos,
             T_world_base=data["T_world_base"],
             current_jas=data["angles"],
@@ -182,18 +172,17 @@ class FlowTrajectoryDataset:
                 np.isclose(flow_trajectory.reshape(flow_trajectory.shape[0], -1), 0.0)
             ).all(axis=-1)
         ).astype(np.bool_)
-
         if self.n_points:
             rng = np.random.default_rng(seed2)
             ixs = rng.permutation(range(len(pos)))[: self.n_points]
             pos = pos[ixs]
             trajectory = flow_trajectory[ixs, :, :]
             mask = mask[ixs]
-
         return {
             "id": data["id"],
             "pos": pos,
-            "trajectory": trajectory,
+            "delta": trajectory[:, :, 3:],  #  N , traj_len, 3
+            "point": trajectory[:, :, :3],  #  N , traj_len, 3
             "mask": mask,
         }
 

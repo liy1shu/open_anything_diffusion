@@ -1,5 +1,8 @@
 import json
 
+# Disable wandb
+import os
+
 import hydra
 import lightning as L
 import omegaconf
@@ -21,6 +24,8 @@ from python_ml_project_template.utils.script_utils import (
     LogPredictionSamplesCallback,
     match_fn,
 )
+
+os.environ["WANDB_SILENT"] = "true"
 
 
 @hydra.main(config_path="../configs", config_name="train", version_base="1.3")
@@ -61,7 +66,6 @@ def main(cfg):
         batch_size=cfg.training.batch_size,
         num_workers=cfg.resources.num_workers,
         trajectory_len=cfg.training.trajectory_len,
-        mode=cfg.training.mode,
         n_proc=cfg.training.n_proc,  # Add n_proc
     )
     train_loader = datamodule.train_dataloader()
@@ -89,7 +93,9 @@ def main(cfg):
 
     mask_channel = 1 if cfg.training.mask_input_channel else 0
     network = pnp.PN2Dense(
-        in_channels=mask_channel, out_channels=3, p=pnp.PN2DenseParams()
+        in_channels=mask_channel,
+        out_channels=3 * cfg.training.trajectory_len,
+        p=pnp.PN2DenseParams(),
     )
 
     ######################################################################

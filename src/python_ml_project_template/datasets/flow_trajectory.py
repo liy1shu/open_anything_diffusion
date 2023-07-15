@@ -20,7 +20,6 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         n_proc,
         randomize_camera: bool = True,
         trajectory_len: int = 5,
-        mode: str = "delta",
     ):
         super().__init__()
         self.batch_size = batch_size
@@ -31,12 +30,11 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 split="umpnet-train-train",
                 randomize_camera=randomize_camera,
                 trajectory_len=trajectory_len,
-                mode=mode,
             ),
             data_keys=rpd.UMPNET_TRAIN_TRAIN_OBJ_IDS,
             root=root,
             processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
-                True, randomize_camera, trajectory_len, mode
+                True, randomize_camera, trajectory_len
             ),
             n_repeat=100,
             n_workers=num_workers,
@@ -50,12 +48,11 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 split="umpnet-train-test",
                 randomize_camera=randomize_camera,
                 trajectory_len=trajectory_len,
-                mode=mode,
             ),
             data_keys=rpd.UMPNET_TRAIN_TEST_OBJ_IDS,
             root=root,
             processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
-                True, randomize_camera, trajectory_len, mode
+                True, randomize_camera, trajectory_len
             ),
             n_repeat=1,
             n_workers=num_workers,
@@ -69,12 +66,11 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 split="umpnet-test",
                 randomize_camera=randomize_camera,
                 trajectory_len=trajectory_len,
-                mode=mode,
             ),
             data_keys=rpd.UMPNET_TEST_OBJ_IDS,
             root=root,
             processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
-                True, randomize_camera, trajectory_len, mode
+                True, randomize_camera, trajectory_len
             ),
             n_repeat=1,
             n_workers=num_workers,
