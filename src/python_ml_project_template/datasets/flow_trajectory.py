@@ -20,6 +20,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         n_proc,
         randomize_camera: bool = True,
         trajectory_len: int = 5,
+        seed: int = 12345,
     ):
         super().__init__()
         self.batch_size = batch_size
@@ -39,6 +40,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             n_repeat=100,
             n_workers=num_workers,
             n_proc_per_worker=n_proc,
+            seed=seed,
         )
 
         self.val_dset = CachedByKeyDataset(
@@ -57,6 +59,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             n_repeat=1,
             n_workers=num_workers,
             n_proc_per_worker=n_proc,
+            seed=seed,
         )
 
         self.unseen_dset = CachedByKeyDataset(
@@ -75,6 +78,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             n_repeat=1,
             n_workers=num_workers,
             n_proc_per_worker=n_proc,
+            seed=seed,
         )
 
     def train_dataloader(self):

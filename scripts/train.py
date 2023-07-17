@@ -64,6 +64,7 @@ def main(cfg):
         num_workers=cfg.resources.num_workers,
         trajectory_len=cfg.training.trajectory_len,
         n_proc=cfg.training.n_proc,  # Add n_proc
+        seed=cfg.seed,
     )
     train_loader = datamodule.train_dataloader()
     val_loader = datamodule.val_dataloader()
