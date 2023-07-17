@@ -3,14 +3,22 @@ import os
 import lightning as L
 import rpad.partnet_mobility_utils.dataset as rpd
 import torch_geometric.loader as tgl
-from flowbot3d.datasets.flow_dataset_pyg import Flowbot3DPyGDataset
 from rpad.pyg.dataset import CachedByKeyDataset
+
+# from flowbot3d.datasets.flow_dataset_pyg import Flowbot3DPyGDataset
+from python_ml_project_template.datasets.flow_dataset_pyg import Flowbot3DPyGDataset
 
 
 # TODO: Create FlowBot dataset
 class FlowBotDataModule(L.LightningDataModule):
     def __init__(
-        self, root, batch_size, num_workers, n_proc, randomize_camera: bool = True
+        self,
+        root,
+        batch_size,
+        num_workers,
+        n_proc,
+        randomize_camera: bool = True,
+        seed=42,
     ):
         super().__init__()
         self.batch_size = batch_size
@@ -31,6 +39,7 @@ class FlowBotDataModule(L.LightningDataModule):
             n_repeat=100,
             n_workers=num_workers,
             n_proc_per_worker=n_proc,
+            seed=seed,
         )
 
         self.val_dset = CachedByKeyDataset(
@@ -49,6 +58,7 @@ class FlowBotDataModule(L.LightningDataModule):
             n_repeat=1,
             n_workers=num_workers,
             n_proc_per_worker=n_proc,
+            seed=seed,
         )
 
         self.unseen_dset = CachedByKeyDataset(
@@ -67,6 +77,7 @@ class FlowBotDataModule(L.LightningDataModule):
             n_repeat=1,
             n_workers=num_workers,
             n_proc_per_worker=n_proc,
+            seed=seed,
         )
 
     def train_dataloader(self, shuffle=True):

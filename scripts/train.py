@@ -56,6 +56,7 @@ def main(cfg):
         batch_size=cfg.training.batch_size,
         num_workers=cfg.resources.num_workers,
         n_proc=cfg.training.n_proc,  # Add n_proc
+        seed=cfg.seed,
     )
     train_loader = datamodule.train_dataloader()
     val_loader = datamodule.val_dataloader()
