@@ -19,7 +19,7 @@ def test_check_single_trajectory(cfg):
     torch.backends.cudnn.benchmark = False
     torch.set_float32_matmul_precision("medium")
 
-    # Run 10 epoch of original flowbot model
+    # Run 2 epoch of original flowbot model
     L.seed_everything(cfg.seed)
     flowbot_datamodule = FlowBotDataModule(
         root=cfg.dataset.data_dir,
@@ -53,7 +53,7 @@ def test_check_single_trajectory(cfg):
         [flowbot_train_loader, flowbot_val_loader, flowbot_unseen_loader],
     )
 
-    # Run 10 epoch of 1-trajectory model
+    # Run 2 epoch of 1-trajectory model
     L.seed_everything(cfg.seed)
     # TODO: Dataset
     traj_datamodule = FlowTrajectoryDataModule(
