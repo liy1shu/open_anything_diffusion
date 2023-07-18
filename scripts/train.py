@@ -59,6 +59,7 @@ def main(cfg):
         seed=cfg.seed,
     )
     train_loader = datamodule.train_dataloader()
+    train_loader_eval = datamodule.train_dataloader(shuffle=False)
     val_loader = datamodule.val_dataloader()
     unseen_loader = datamodule.unseen_dataloader()
 
@@ -188,7 +189,7 @@ def main(cfg):
     # Train the model.
     ######################################################################
 
-    trainer.fit(model, train_loader, [train_loader, val_loader, unseen_loader])
+    trainer.fit(model, train_loader, [train_loader_eval, val_loader, unseen_loader])
 
 
 if __name__ == "__main__":
