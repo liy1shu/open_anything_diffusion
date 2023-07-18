@@ -33,15 +33,24 @@ class FlowPredictorTrainingModule(L.LightningModule):
     def _step(self, batch: tgd.Batch, mode):
         # Make a prediction.
         f_pred = self(batch)
+        print("pred:", f_pred)
 
         # Compute the loss.
         n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
+        # print("n_nodes:", n_nodes)
         f_ix = batch.mask.bool()
+        print("f_ix: ", f_ix)
         f_target = batch.flow
+        print("f_pred[f_ix]: ", f_pred[f_ix])
+        print("f_target[f_ix]: ", f_target[f_ix])
         loss = artflownet_loss(f_pred, f_target, n_nodes)
+        print("loss", loss)
 
         # Compute some metrics on flow-only regions.
         rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
+        print("rmse:", rmse)
+        print("cos_dist:", cos_dist)
+        print("rmse:", mag_error)
         # import pdb
         # pdb.set_trace()
 
@@ -66,14 +75,16 @@ class FlowPredictorTrainingModule(L.LightningModule):
         return [optimizer], [lr_scheduler]
 
     def training_step(self, batch: tgd.Batch, batch_id):  # type: ignore
-        # import pdb
-        # pdb.set_trace()
+        print("pos: ", batch.pos)
+        print("flow: ", batch.flow)
         self.train()
         f_pred, loss = self._step(batch, "train")
         return loss
 
     def validation_step(self, batch: tgd.Batch, batch_id, dataloader_idx=0):  # type: ignore
         self.eval()
+        print("VAL pos: ", batch.pos.shape)
+        print("VAL flow: ", batch.flow.shape)
         dataloader_names = ["train", "val", "unseen"]
         name = dataloader_names[dataloader_idx]
         f_pred, loss = self._step(batch, name)

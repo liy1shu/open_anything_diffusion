@@ -169,7 +169,9 @@ class FlowTrajectoryDataset:
         # Compute the mask of any part which has flow.
         mask = (
             ~(
-                np.isclose(flow_trajectory.reshape(flow_trajectory.shape[0], -1), 0.0)
+                np.isclose(
+                    flow_trajectory[:, :, 3:].reshape(flow_trajectory.shape[0], -1), 0.0
+                )
             ).all(axis=-1)
         ).astype(np.bool_)
         if self.n_points:

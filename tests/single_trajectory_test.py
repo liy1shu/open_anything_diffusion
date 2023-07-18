@@ -1,8 +1,8 @@
 # Check len=1 trajectory should produce the same training results as original flowbot
-import hydra
 import lightning as L
 import rpad.pyg.nets.pointnet2 as pnp
 import torch
+from hydra import compose, initialize
 
 from python_ml_project_template.datasets.flow_trajectory import FlowTrajectoryDataModule
 from python_ml_project_template.datasets.flowbot import FlowBotDataModule
@@ -13,8 +13,11 @@ from python_ml_project_template.models.flow_trajectory_predictor import (
 
 
 # TODO: aggregate two settings to unit_test, then also needs to change the
-@hydra.main(config_path="../configs", config_name="unit_test", version_base="1.3")
 def test_check_single_trajectory(cfg):
+    with initialize(config_path="../configs", version_base="1.3"):
+        # config is relative to a module
+        cfg = compose(config_name="unit_test")
+
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.set_float32_matmul_precision("medium")
