@@ -21,6 +21,7 @@ class FlowBotDataModule(L.LightningDataModule):
     ):
         super().__init__()
         self.batch_size = batch_size
+        self.seed = seed
 
         self.train_dset = CachedByKeyDataset(
             dset_cls=Flowbot3DPyGDataset,
@@ -80,6 +81,8 @@ class FlowBotDataModule(L.LightningDataModule):
         )
 
     def train_dataloader(self, shuffle=True):
+        if shuffle:
+            L.seed_everything(self.seed)
         return tgl.DataLoader(
             self.train_dset, self.batch_size, shuffle=shuffle, num_workers=0
         )

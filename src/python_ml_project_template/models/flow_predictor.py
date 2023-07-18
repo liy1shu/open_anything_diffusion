@@ -42,6 +42,8 @@ class FlowPredictorTrainingModule(L.LightningModule):
 
         # Compute some metrics on flow-only regions.
         rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
+        # import pdb
+        # pdb.set_trace()
 
         self.log_dict(
             {
@@ -64,6 +66,8 @@ class FlowPredictorTrainingModule(L.LightningModule):
         return [optimizer], [lr_scheduler]
 
     def training_step(self, batch: tgd.Batch, batch_id):  # type: ignore
+        # import pdb
+        # pdb.set_trace()
         self.train()
         f_pred, loss = self._step(batch, "train")
         return loss
