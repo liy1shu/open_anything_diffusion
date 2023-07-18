@@ -20,10 +20,11 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         n_proc,
         randomize_camera: bool = True,
         trajectory_len: int = 5,
-        seed: int = 12345,
+        seed: int = 42,
     ):
         super().__init__()
         self.batch_size = batch_size
+        self.seed = seed
         self.train_dset = CachedByKeyDataset(
             dset_cls=FlowTrajectoryPyGDataset,
             dset_kwargs=dict(
@@ -81,9 +82,11 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             seed=seed,
         )
 
-    def train_dataloader(self):
+    def train_dataloader(self, shuffle=True):
+        if shuffle:
+            L.seed_everything(self.seed)
         return tgl.DataLoader(
-            self.train_dset, self.batch_size, shuffle=True, num_workers=0
+            self.train_dset, self.batch_size, shuffle=shuffle, num_workers=0
         )
 
     def val_dataloader(self):
