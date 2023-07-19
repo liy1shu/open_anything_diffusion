@@ -1,18 +1,18 @@
+import argparse
 import json
 
-import hydra
 import lightning as L
 import omegaconf
 import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import wandb
+from hydra import compose, initialize
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
-# from python_ml_project_template.datasets.flowbot import FlowBotDataModule
 from python_ml_project_template.datasets.flow_trajectory import FlowTrajectoryDataModule
-
-# from python_ml_project_template.models.flow_predictor import FlowPredictorTrainingModule
+from python_ml_project_template.datasets.flowbot import FlowBotDataModule
+from python_ml_project_template.models.flow_predictor import FlowPredictorTrainingModule
 from python_ml_project_template.models.flow_trajectory_predictor import (
     FlowTrajectoryTrainingModule,
 )
@@ -22,10 +22,17 @@ from python_ml_project_template.utils.script_utils import (
     match_fn,
 )
 
-# Disable wandb
+data_module_class = {
+    "flowbot": FlowBotDataModule,
+    "trajectory": FlowTrajectoryDataModule,
+}
+training_module_class = {
+    "flowbot": FlowPredictorTrainingModule,
+    "trajectory": FlowTrajectoryTrainingModule,
+}
 
 
-@hydra.main(config_path="../configs", config_name="train", version_base="1.3")
+# @hydra.main(config_path="../configs", config_name="train", version_base="1.3")
 def main(cfg):
     print(
         json.dumps(
@@ -57,14 +64,15 @@ def main(cfg):
     # or with an if statement, or by using hydra.instantiate.
     ######################################################################
 
+    trajectory_len = 1 if cfg.dataset.name == "flowbot" else cfg.training.trajectory_len
     # Create FlowBot dataset
-    datamodule = FlowTrajectoryDataModule(
+    datamodule = data_module_class[cfg.dataset.name](
         root=cfg.dataset.data_dir,
         batch_size=cfg.training.batch_size,
         num_workers=cfg.resources.num_workers,
-        trajectory_len=cfg.training.trajectory_len,
         n_proc=cfg.training.n_proc,  # Add n_proc
         seed=cfg.seed,
+        trajectory_len=trajectory_len,  # Only used when training trajectory model
     )
     train_loader = datamodule.train_dataloader()
     train_loader_eval = datamodule.train_dataloader(shuffle=False)
@@ -93,7 +101,7 @@ def main(cfg):
     mask_channel = 1 if cfg.training.mask_input_channel else 0
     network = pnp.PN2Dense(
         in_channels=mask_channel,
-        out_channels=3 * cfg.training.trajectory_len,
+        out_channels=3 * trajectory_len,
         p=pnp.PN2DenseParams(),
     )
 
@@ -104,7 +112,7 @@ def main(cfg):
     # and the logging.
     ######################################################################
 
-    model = FlowTrajectoryTrainingModule(network, training_cfg=cfg.training)
+    model = training_module_class[cfg.dataset.name](network, training_cfg=cfg.training)
 
     ######################################################################
     # Set up logging in WandB.
@@ -203,4 +211,11 @@ def main(cfg):
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--flowbot", action="store_true")
+    args = parser.parse_args()
+    train_name = "flowbot" if args.flowbot else "trajectory"
+
+    initialize(config_path="../configs", version_base="1.3")
+    cfg = compose(config_name=f"train_{train_name}")
+    main(cfg)

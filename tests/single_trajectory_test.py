@@ -270,9 +270,7 @@ def test_check_single_trajectory():
     #     pred_1 = n1i(b1[0])
 
     check_network_same(n0i, n1i)
-
     check_sds_same(pbsd1, pbsd2)
-
     check_preds_same(p1, p2)
     check_loss_same(l1, l2)
     check_network_same(n0f, n1f)

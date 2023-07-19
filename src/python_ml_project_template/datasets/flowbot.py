@@ -18,6 +18,7 @@ class FlowBotDataModule(L.LightningDataModule):
         n_proc,
         randomize_camera: bool = True,
         seed=42,
+        **kwargs,
     ):
         super().__init__()
         self.batch_size = batch_size
