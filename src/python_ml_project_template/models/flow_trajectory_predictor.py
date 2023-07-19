@@ -7,9 +7,34 @@ import rpad.visualize_3d.plots as v3p
 import torch
 import torch_geometric.data as tgd
 from flowbot3d.grasping.agents.flowbot3d import FlowNetAnimation
-from flowbot3d.models.artflownet import artflownet_loss, flow_metrics
+
+# from flowbot3d.models.artflownet import artflownet_loss, flow_metrics
+from flowbot3d.models.artflownet import artflownet_loss
 from plotly.subplots import make_subplots
 from torch import optim
+
+
+def flow_metrics(pred_flow, gt_flow):
+    with torch.no_grad():
+        # RMSE
+        print(type(pred_flow), type(gt_flow))
+        print("pred - gt: ", (pred_flow - gt_flow))
+        print(
+            (pred_flow - gt_flow).norm(p=2, dim=1),
+            (pred_flow - gt_flow).norm(p=2, dim=1).shape,
+        )
+        print((pred_flow - gt_flow).norm(p=2, dim=1).mean())
+        rmse = (pred_flow - gt_flow).norm(p=2, dim=1).mean()
+
+        # Cosine similarity, normalized.
+        nonzero_gt_flowixs = torch.where(gt_flow.norm(dim=1) != 0.0)
+        gt_flow_nz = gt_flow[nonzero_gt_flowixs]
+        pred_flow_nz = pred_flow[nonzero_gt_flowixs]
+        cos_dist = torch.cosine_similarity(pred_flow_nz, gt_flow_nz, dim=1).mean()
+
+        # Magnitude
+        mag_error = (pred_flow.norm(p=2, dim=1) - gt_flow.norm(p=2, dim=1)).abs().mean()
+    return rmse, cos_dist, mag_error
 
 
 def make_trajectory_animation(traj_data):  # Make trajectory animation
@@ -57,27 +82,27 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
     def _step(self, batch: tgd.Batch, mode):
         # Make a prediction.
         f_pred = self(batch)
-        print("pred:", f_pred)
+        print("f_pred: ", f_pred)
 
         # Compute the loss.
         n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
         f_ix = batch.mask.bool()
-        print("f_ix", f_ix)
+        print("BOOL count:", torch.sum(f_ix))
         if self.mode == "delta":
             f_target = batch.delta.reshape(batch.delta.shape[0], -1)
         elif self.mode == "point":
             f_target = batch.point.reshape(batch.point.shape[0], -1)
 
-        print("f_pred[f_ix]: ", f_pred[f_ix])
-        print("f_target[f_ix]: ", f_target[f_ix])
+        f_target = f_target.float()
+        print("f_target:", f_target)
         loss = artflownet_loss(f_pred, f_target, n_nodes)
-        print("loss", loss)
+        print("loss: ", loss)
 
         # Compute some metrics on flow-only regions.
         rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
         print("rmse:", rmse)
         print("cos_dist:", cos_dist)
-        print("rmse:", mag_error)
+        print("mag:", mag_error)
 
         self.log_dict(
             {
@@ -99,16 +124,12 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
         return [optimizer], [lr_scheduler]
 
     def training_step(self, batch: tgd.Batch, batch_id):  # type: ignore
-        print("pos: ", batch.pos)
-        print("flow: ", batch.delta)
         self.train()
         _, loss = self._step(batch, "train")
         return loss
 
     def validation_step(self, batch: tgd.Batch, batch_id, dataloader_idx=0):  # type: ignore
         self.eval()
-        print("VAL pos: ", batch.pos.shape)
-        print("VAL flow: ", batch.delta.shape)
         dataloader_names = ["train", "val", "unseen"]
         name = dataloader_names[dataloader_idx]
         f_pred, loss = self._step(batch, name)
