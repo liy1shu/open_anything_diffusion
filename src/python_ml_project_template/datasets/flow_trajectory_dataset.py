@@ -95,7 +95,8 @@ def compute_flow_trajectory(
     pm_raw_data,
     linknames="all",
 ) -> npt.NDArray[np.float32]:
-    flow_trajectory = np.zeros((K, P_world.shape[0], 6), dtype=np.float32)
+    flow_trajectory = np.zeros((K, P_world.shape[0], 3), dtype=np.float32)
+    point_trajectory = np.zeros((K, P_world.shape[0], 3), dtype=np.float32)
     for step in range(K):
         # compute the delta / waypoint & rotate and then calculate another
         P_world_new, current_jas, flow = compute_normalized_flow(
@@ -107,12 +108,13 @@ def compute_flow_trajectory(
             pm_raw_data,
             linknames,
         )
-        flow_trajectory[step, :, :] = np.concatenate(
-            [P_world_new, flow], axis=-1
-        )  # [:3]: waypoints, [3:]: deltas
+        flow_trajectory[step, :, :] = flow
+        point_trajectory[step, :, :] = P_world_new
         # Update pos
         P_world = P_world_new
-    return flow_trajectory.transpose(1, 0, 2)  # Point * traj_len * 6
+    return flow_trajectory.transpose(1, 0, 2), point_trajectory.transpose(
+        1, 0, 2
+    )  # Delta / Point * traj_len * 3
 
 
 class FlowTrajectoryDataset:
@@ -157,7 +159,7 @@ class FlowTrajectoryDataset:
         pos = data["pos"]
 
         # Compute the flow trajectory
-        flow_trajectory = compute_flow_trajectory(
+        flow_trajectory, point_trajectory = compute_flow_trajectory(
             K=self.trajectory_len,
             P_world=pos,
             T_world_base=data["T_world_base"],
@@ -170,22 +172,21 @@ class FlowTrajectoryDataset:
         # Compute the mask of any part which has flow.
         mask = (
             ~(
-                np.isclose(
-                    flow_trajectory[:, :, 3:].reshape(flow_trajectory.shape[0], -1), 0.0
-                )
+                np.isclose(flow_trajectory.reshape(flow_trajectory.shape[0], -1), 0.0)
             ).all(axis=-1)
         ).astype(np.bool_)
         if self.n_points:
             rng = np.random.default_rng(seed2)
             ixs = rng.permutation(range(len(pos)))[: self.n_points]
             pos = pos[ixs]
-            trajectory = flow_trajectory[ixs, :, :]
+            flow_trajectory = flow_trajectory[ixs, :, :]
+            point_trajectory = point_trajectory[ixs, :, :]
             mask = mask[ixs]
         return {
             "id": data["id"],
             "pos": pos,
-            "delta": trajectory[:, :, 3:],  #  N , traj_len, 3
-            "point": trajectory[:, :, :3],  #  N , traj_len, 3
+            "delta": flow_trajectory,  #  N , traj_len, 3
+            "point": point_trajectory,  #  N , traj_len, 3
             "mask": mask,
         }
 
