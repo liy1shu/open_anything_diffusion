@@ -73,14 +73,15 @@ def compute_normalized_flow(
         target_jas[pm_raw_data.obj.get_joint_by_child(linkname).name] += 0.01
 
         link_flow = P_world_new - P_world
-        P_world = P_world_new
+        # P_world = P_world_new
         flow += link_flow
 
     largest_mag: float = np.linalg.norm(flow, axis=-1).max()
 
     normalized_flow = flow / (largest_mag + 1e-6)
 
-    return P_world_new, target_jas, normalized_flow
+    # return P_world_new, target_jas, normalized_flow
+    return P_world + flow, target_jas, normalized_flow
 
 
 # Compute trajectories as K deltas & waypoints
@@ -93,8 +94,8 @@ def compute_flow_trajectory(
     labelmap,
     pm_raw_data,
     linknames="all",
-):
-    flow_trajectory = np.zeros((K, P_world.shape[0], 6))
+) -> npt.NDArray[np.float32]:
+    flow_trajectory = np.zeros((K, P_world.shape[0], 6), dtype=np.float32)
     for step in range(K):
         # compute the delta / waypoint & rotate and then calculate another
         P_world_new, current_jas, flow = compute_normalized_flow(
