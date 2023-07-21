@@ -7,7 +7,8 @@ from scipy.spatial.transform import Rotation as R
 # from part_embedding.envs.debug_viz import draw_pose
 
 __ASSETS_CHUNK = "third_party/ravens/ravens/environments/assets"
-ASSETS_DIR = Path(__file__).parent.parent.parent / __ASSETS_CHUNK
+ASSETS_DIR = Path(__file__).parent.parent.parent.parent / __ASSETS_CHUNK
+print(ASSETS_DIR)
 SUCTION_BASE_URDF = str(ASSETS_DIR / "ur5/suction/suction-base.urdf")
 SUCTION_HEAD_URDF = str(ASSETS_DIR / "ur5/suction/suction-head.urdf")
 
