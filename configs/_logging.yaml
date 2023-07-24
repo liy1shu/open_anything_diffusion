@@ -24,7 +24,7 @@ wandb:
   project: open_anything_diffusion
 
   # Group is for grouping runs together (i.e. a train run and an eval run).
-  group: regression
+  group: ???
 
   # Where to dump wandb logs, etc.
   save_dir: ${output_dir}

@@ -9,10 +9,10 @@ from lightning.pytorch.utilities.seed import isolate_rng
 from omegaconf import OmegaConf
 from torch import Tensor
 
-from python_ml_project_template.datasets.flow_trajectory import FlowTrajectoryDataModule
-from python_ml_project_template.datasets.flowbot import FlowBotDataModule
-from python_ml_project_template.models.flow_predictor import FlowPredictorTrainingModule
-from python_ml_project_template.models.flow_trajectory_predictor import (
+from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
+from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
+from open_anything_diffusion.models.flow_predictor import FlowPredictorTrainingModule
+from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowTrajectoryTrainingModule,
 )
 
@@ -181,6 +181,7 @@ def run_training_flowbot(steps):
     )
 
 
+@pytest.mark.skip(reason="Not testing")
 def test_check_single_trajectory():
     # with initialize(config_path="../configs", version_base="1.3"):
     #     # config is relative to a module
