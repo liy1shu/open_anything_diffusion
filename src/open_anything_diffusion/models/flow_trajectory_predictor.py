@@ -93,7 +93,8 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
 
     def _step(self, batch: tgd.Batch, mode):
         # Make a prediction.
-        f_pred = self(batch).reshape(f_pred.shape[0], -1, 3)  # batch * traj_len * 3
+        f_pred = self(batch)
+        f_pred = f_pred.reshape(f_pred.shape[0], -1, 3)  # batch * traj_len * 3
 
         # Compute the loss.
         n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
