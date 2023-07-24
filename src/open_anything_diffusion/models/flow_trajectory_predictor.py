@@ -41,7 +41,7 @@ def artflownet_loss(
     raw_se = ((f_pred - f_target) ** 2).sum(dim=-1)
 
     weights = (1 / n_nodes).repeat_interleave(n_nodes)
-    l_se = (raw_se * weights).sum() / f_pred.shape[1]  # Trajectory length
+    l_se = (raw_se * weights[:, None]).sum() / f_pred.shape[1]  # Trajectory length
 
     # Full loss, aberaged across the batch.
     loss: torch.Tensor = l_se / len(n_nodes)
