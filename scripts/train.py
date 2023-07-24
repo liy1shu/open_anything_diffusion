@@ -1,6 +1,7 @@
 import argparse
 import json
 
+import hydra
 import lightning as L
 import omegaconf
 import rpad.pyg.nets.pointnet2 as pnp
@@ -32,7 +33,7 @@ training_module_class = {
 }
 
 
-# @hydra.main(config_path="../configs", config_name="train", version_base="1.3")
+@hydra.main(config_path="../configs", config_name="train", version_base="1.3")
 def main(cfg):
     print(
         json.dumps(
@@ -70,7 +71,7 @@ def main(cfg):
         root=cfg.dataset.data_dir,
         batch_size=cfg.training.batch_size,
         num_workers=cfg.resources.num_workers,
-        n_proc=cfg.training.n_proc,  # Add n_proc
+        n_proc=cfg.resources.n_proc_per_worker,
         seed=cfg.seed,
         trajectory_len=trajectory_len,  # Only used when training trajectory model
     )
@@ -211,11 +212,4 @@ def main(cfg):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--flowbot", action="store_true")
-    args = parser.parse_args()
-    train_name = "flowbot" if args.flowbot else "trajectory"
-
-    initialize(config_path="../configs", version_base="1.3")
-    cfg = compose(config_name=f"train_{train_name}")
-    main(cfg)
+    main()

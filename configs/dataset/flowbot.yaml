@@ -1,5 +1,5 @@
 name: flowbot
-data_dir: /home/yishu/datasets/partnet-mobility
+data_dir: ${oc.env:HOME}/datasets/partnet-mobility
 
 dataset: umpnet
 model: flowbot
