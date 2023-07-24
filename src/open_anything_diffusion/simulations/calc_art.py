@@ -4,8 +4,9 @@ from typing import List, Sequence
 
 import numpy as np
 import trimesh
-from python_ml_project_template.simulations.pm_raw import Joint, PMRawData
 from scipy.spatial.transform import Rotation
+
+from open_anything_diffusion.simulations.pm_raw import Joint, PMRawData
 
 
 def fk(chain: List[Joint], joint_angles: Sequence[float]) -> np.ndarray:

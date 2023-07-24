@@ -9,17 +9,15 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 import torch
-from python_ml_project_template.simulations.calc_art import compute_new_points
-from python_ml_project_template.simulations.camera import Camera
-from python_ml_project_template.simulations.floating_vacuum_gripper import (
+from scipy.spatial.transform import Rotation as R
+
+from open_anything_diffusion.simulations.calc_art import compute_new_points
+from open_anything_diffusion.simulations.camera import Camera
+from open_anything_diffusion.simulations.floating_vacuum_gripper import (
     FloatingSuctionGripper,
 )
-from python_ml_project_template.simulations.pm_raw import PMRawData
-from python_ml_project_template.simulations.utils import (
-    get_obj_z_offset,
-    suppress_stdout,
-)
-from scipy.spatial.transform import Rotation as R
+from open_anything_diffusion.simulations.pm_raw import PMRawData
+from open_anything_diffusion.simulations.utils import get_obj_z_offset, suppress_stdout
 
 # from python_ml_project_template.datasets.flow_trajectory_dataset import compute_normalized_flow, compute_flow_trajectory
 # from part_embedding.flow_prediction.cam_utils import sample_az_ele
@@ -704,8 +702,42 @@ class GTFlowModel:
 
 class GTTrajectoryModel:
     # TODO: Generates trajectory
-    def __init__(self):
-        pass
+    def __init__(self, raw_data, env, traj_len=20):
+        self.raw_data = raw_data
+        self.env = env
+        self.traj_len = traj_len
+
+    def __call__(self, obs) -> torch.Tensor:
+        rgb, depth, seg, P_cam, P_world, pc_seg, segmap = obs
+        env = self.env
+        raw_data = self.raw_data
+
+        trajectory = np.zeros((P_world.shape[0], self.traj_len, 3))
+
+        for step in range(self.traj_len):
+            flow = compute_flow(
+                P_world,
+                env.T_world_base,
+                pc_seg,
+                raw_data,
+                linkname="all",
+                linkname_to_id=env.link_name_to_index,
+            )
+            nonzero_flow_xs = (flow != 0.0).any(axis=-1)
+
+            P_world += flow
+
+            if nonzero_flow_xs.sum() > 0.0:
+                nonzero_flow = flow[(flow != 0.0).any(axis=-1)]
+                # print(f"there's zero flow for {env.obj_id_str}")
+                # raise ValueError(f"there's zero flow for {self.obj_id_str}")
+                largest = np.linalg.norm(nonzero_flow, axis=-1).max()
+
+                flow = flow / largest
+
+            trajectory[:, step, :] = flow
+
+        return torch.from_numpy(trajectory)
 
 
 def run_trial(
@@ -713,8 +745,9 @@ def run_trial(
     raw_data: PMRawData,
     target_link: str,
     model,
-    n_flow_steps: int = 30,
+    n_steps: int = 30,
     n_pts: int = 1200,
+    traj_len: int = 1,  # By default, only move one step
 ) -> TrialResult:
     # First, reset the environment.
     env.reset()
@@ -730,7 +763,8 @@ def run_trial(
     pc_obs = env.render(filter_nonobj_pts=True, n_pts=n_pts)
     rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
 
-    pred_flow = model(pc_obs)
+    pred_trajectory = model(pc_obs)
+    pred_flow = pred_trajectory[:, 0, :]
 
     # flow_fig(torch.from_numpy(P_world), pred_flow, sizeref=0.1, use_v2=True).show()
     # breakpoint()
@@ -759,29 +793,33 @@ def run_trial(
 
     pc_obs = env.render(filter_nonobj_pts=True, n_pts=n_pts)
     success = False
+    print("TWO!", pc_obs)
 
-    for i in range(n_flow_steps):
+    for i in range(n_steps):
         # Predict the flow on the observation.
-        pred_flow = model(pc_obs)
-        rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
+        pred_trajectory = model(pc_obs)
 
-        # Filter down just the points on the target link.
-        link_ixs = pc_seg == env.link_name_to_index[target_link]
-        assert link_ixs.any()
+        for traj_step in range(traj_len):
+            pred_flow = pred_trajectory[:, traj_step, :]
+            rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
 
-        # Get the best direction.
-        best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
-        best_flow = pred_flow[link_ixs][best_flow_ix]
+            # Filter down just the points on the target link.
+            link_ixs = pc_seg == env.link_name_to_index[target_link]
+            assert link_ixs.any()
 
-        # Perform the pulling.
-        env.pull(best_flow)
+            # Get the best direction.
+            best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
+            best_flow = pred_flow[link_ixs][best_flow_ix]
 
-        success = env.detect_success(target_link)
+            # Perform the pulling.
+            env.pull(best_flow)
 
-        if success:
-            break
+            success = env.detect_success(target_link)
 
-        pc_obs = env.render(filter_nonobj_pts=True, n_pts=1200)
+            if success:
+                break
+
+            pc_obs = env.render(filter_nonobj_pts=True, n_pts=1200)
 
     init_angle = 0.0
     final_angle = 0.0
@@ -793,6 +831,3 @@ def run_trial(
         final_angle=final_angle,
         metric=metric,
     )
-
-
-# TODO: change the above to flexible trajectory len, or just create a new function
