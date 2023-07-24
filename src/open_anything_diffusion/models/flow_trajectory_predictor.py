@@ -32,6 +32,23 @@ def flow_metrics(pred_flow, gt_flow):
     return rmse, cos_dist, mag_error
 
 
+def artflownet_loss(
+    f_pred: torch.Tensor,
+    f_target: torch.Tensor,
+    n_nodes: torch.Tensor,
+) -> torch.Tensor:
+    # Flow loss, per-point.
+    raw_se = ((f_pred - f_target) ** 2).sum(dim=-1)
+
+    weights = (1 / n_nodes).repeat_interleave(n_nodes)
+    l_se = (raw_se * weights).sum() / f_pred.shape[1]  # Trajectory length
+
+    # Full loss, aberaged across the batch.
+    loss: torch.Tensor = l_se / len(n_nodes)
+
+    return loss
+
+
 def make_trajectory_animation(traj_data):  # Make trajectory animation
     animation = FlowNetAnimation()
     for i in range(traj_data["point"].shape[-2]):
@@ -76,15 +93,15 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
 
     def _step(self, batch: tgd.Batch, mode):
         # Make a prediction.
-        f_pred = self(batch)
+        f_pred = self(batch).reshape(f_pred.shape[0], -1, 3)  # batch * traj_len * 3
 
         # Compute the loss.
         n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
         f_ix = batch.mask.bool()
         if self.mode == "delta":
-            f_target = batch.delta.reshape(batch.delta.shape[0], -1)
+            f_target = batch.delta
         elif self.mode == "point":
-            f_target = batch.point.reshape(batch.point.shape[0], -1)
+            f_target = batch.point
 
         f_target = f_target.float()
         loss = artflownet_loss(f_pred, f_target, n_nodes)
@@ -102,7 +119,7 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
             add_dataloader_idx=False,
             batch_size=len(batch),
         )
-        return f_pred.reshape(f_pred.shape[0], -1, 3), loss
+        return f_pred, loss
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=self.lr)
