@@ -1,4 +1,4 @@
-# python_ml_project_template
+# open_anything_diffusion
 
 Some sample text for the website.
 

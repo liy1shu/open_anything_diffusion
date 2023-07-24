@@ -1,5 +1,5 @@
 [project]
-name = "python-ml-project-template"
+name = "open-anything-diffusion"
 version = "0.1.0"
 description = "A Python Package Template"
 readme = "README.md"
@@ -13,6 +13,7 @@ dependencies = [
   "lightning == 2.0.3",
   "omegaconf == 2.3.0",
   "pandas",
+  "rpad-pyg @ git+https://github.com/r-pad/pyg_libs",
   "torch == 2.0.1", # CUDA 11.8
   "torchmetrics",
   "torchvision == 0.15.2", # CUDA 11.8
@@ -51,7 +52,7 @@ build_docs = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-python_ml_project_template = ["py.typed"]
+open_anything_diffusion = ["py.typed"]
 
 [tool.isort]
 profile = "black"

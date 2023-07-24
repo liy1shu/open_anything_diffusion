@@ -13,11 +13,9 @@ import tqdm
 import wandb
 from flowbot3d.models.artflownet import flow_metrics
 
-from python_ml_project_template.datasets.flowbot import FlowBotDataModule
-from python_ml_project_template.models.flow_predictor import (
-    FlowPredictorInferenceModule,
-)
-from python_ml_project_template.utils.script_utils import PROJECT_ROOT, match_fn
+from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
+from open_anything_diffusion.models.flow_predictor import FlowPredictorInferenceModule
+from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
 
 
 @torch.no_grad()

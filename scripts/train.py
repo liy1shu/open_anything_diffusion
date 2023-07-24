@@ -10,13 +10,13 @@ from hydra import compose, initialize
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
-from python_ml_project_template.datasets.flow_trajectory import FlowTrajectoryDataModule
-from python_ml_project_template.datasets.flowbot import FlowBotDataModule
-from python_ml_project_template.models.flow_predictor import FlowPredictorTrainingModule
-from python_ml_project_template.models.flow_trajectory_predictor import (
+from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
+from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
+from open_anything_diffusion.models.flow_predictor import FlowPredictorTrainingModule
+from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowTrajectoryTrainingModule,
 )
-from python_ml_project_template.utils.script_utils import (
+from open_anything_diffusion.utils.script_utils import (
     PROJECT_ROOT,
     LogPredictionSamplesCallback,
     match_fn,
@@ -92,7 +92,7 @@ def main(cfg):
     # and eval can be the same.
     #
     # If it's a custom network, a good idea is to put the custom network
-    # in `python_ml_project_template.nets.my_net`.
+    # in `open_anything_diffusion.nets.my_net`.
     ######################################################################
 
     # Model architecture is dataset-dependent, so we have a helper
