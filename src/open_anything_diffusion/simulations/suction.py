@@ -9,8 +9,6 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 import torch
-from scipy.spatial.transform import Rotation as R
-
 from python_ml_project_template.simulations.calc_art import compute_new_points
 from python_ml_project_template.simulations.camera import Camera
 from python_ml_project_template.simulations.floating_vacuum_gripper import (
@@ -21,6 +19,7 @@ from python_ml_project_template.simulations.utils import (
     get_obj_z_offset,
     suppress_stdout,
 )
+from scipy.spatial.transform import Rotation as R
 
 # from python_ml_project_template.datasets.flow_trajectory_dataset import compute_normalized_flow, compute_flow_trajectory
 # from part_embedding.flow_prediction.cam_utils import sample_az_ele

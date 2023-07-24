@@ -22,9 +22,8 @@ from xml.etree import ElementTree as ET
 import numpy as np
 import numpy.typing as npt
 import trimesh
-from scipy.spatial.transform import Rotation
-
 from python_ml_project_template.simulations.render_sim import PMRenderEnv
+from scipy.spatial.transform import Rotation
 
 try:
     pass

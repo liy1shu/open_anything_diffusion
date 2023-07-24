@@ -3,7 +3,6 @@
 import os
 
 import numpy as np
-
 from python_ml_project_template.simulations.pm_raw import PMRawData
 from python_ml_project_template.simulations.suction import (  # compute_flow,
     GTFlowModel,

@@ -4,7 +4,6 @@ from typing import Dict, List, Optional, Sequence
 import numpy as np
 import pybullet as p
 import pybullet_data
-
 from python_ml_project_template.simulations.camera import Camera
 from python_ml_project_template.simulations.utils import (
     get_obj_z_offset,
