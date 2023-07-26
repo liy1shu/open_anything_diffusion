@@ -6,6 +6,8 @@ import torch_geometric.loader as tgl
 from flowbot3d.datasets.flow_dataset_pyg import Flowbot3DPyGDataset
 from rpad.pyg.dataset import CachedByKeyDataset
 
+# from open_anything_diffusion.datasets.flow_dataset_pyg import Flowbot3DPyGDataset
+
 
 class FlowBotDataModule(L.LightningDataModule):
     def __init__(
@@ -98,9 +100,11 @@ class FlowBotDataModule(L.LightningDataModule):
             seed=seed,
         )
 
-    def train_dataloader(self):
+    def train_dataloader(self, shuffle=True):
+        if shuffle:
+            L.seed_everything(self.seed)
         return tgl.DataLoader(
-            self.train_dset, self.batch_size, shuffle=True, num_workers=0
+            self.train_dset, self.batch_size, shuffle=shuffle, num_workers=0
         )
 
     def train_val_dataloader(self):

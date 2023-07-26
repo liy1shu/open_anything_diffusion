@@ -220,7 +220,6 @@ class FlowPredictorInferenceModule(L.LightningModule):
 
         return flow
 
-    # TODO: the predict step input is different now, pay attention
     def predict_step(self, xyz: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """Predict the flow for a single object. The point cloud should
         come straight from the maniskill processed observation function.
@@ -243,3 +242,26 @@ class FlowPredictorInferenceModule(L.LightningModule):
         with torch.no_grad():
             flow = self.forward(batch)
         return flow
+
+
+class FlowSimulationInferenceModule(L.LightningModule):
+    def __init__(self, network) -> None:
+        super().__init__()
+        self.network = network
+
+    def forward(self, data) -> torch.Tensor:  # type: ignore
+        # Maybe add the mask as an input to the network.
+        rgb, depth, seg, P_cam, P_world, pc_seg, segmap = data
+
+        data = tgd.Data(
+            pos=torch.from_numpy(P_world).float(),
+            mask=torch.ones(P_world.shape[0]).float(),
+        )
+        batch = tgd.Batch.from_data_list([data])
+        batch = batch.to(self.device)
+        batch.x = batch.mask.reshape(len(batch.mask), 1)
+        self.eval()
+        with torch.no_grad():
+            trajectory = self.network(batch)
+        print("Trajectory prediction shape:", trajectory.shape)
+        return trajectory.reshape(trajectory.shape[0], -1, 3)

@@ -56,7 +56,6 @@ class LightningModuleWithPlots(pl.LightningModule, CanMakePlots):
     pass
 
 
-# TODO: Change
 class LogPredictionSamplesCallback(Callback):
     def __init__(self, logger: WandbLogger, eval_per_n_epoch):
         self.logger = logger
