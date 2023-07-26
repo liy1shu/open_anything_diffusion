@@ -1,22 +1,21 @@
-import argparse
 import json
 
+import hydra
 import lightning as L
 import omegaconf
 import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import wandb
-from hydra import compose, initialize
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
-from python_ml_project_template.datasets.flow_trajectory import FlowTrajectoryDataModule
-from python_ml_project_template.datasets.flowbot import FlowBotDataModule
-from python_ml_project_template.models.flow_predictor import FlowPredictorTrainingModule
-from python_ml_project_template.models.flow_trajectory_predictor import (
+from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
+from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
+from open_anything_diffusion.models.flow_predictor import FlowPredictorTrainingModule
+from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowTrajectoryTrainingModule,
 )
-from python_ml_project_template.utils.script_utils import (
+from open_anything_diffusion.utils.script_utils import (
     PROJECT_ROOT,
     LogPredictionSamplesCallback,
     match_fn,
@@ -32,7 +31,7 @@ training_module_class = {
 }
 
 
-# @hydra.main(config_path="../configs", config_name="train", version_base="1.3")
+@hydra.main(config_path="../configs", config_name="train", version_base="1.3")
 def main(cfg):
     print(
         json.dumps(
@@ -70,12 +69,12 @@ def main(cfg):
         root=cfg.dataset.data_dir,
         batch_size=cfg.training.batch_size,
         num_workers=cfg.resources.num_workers,
-        n_proc=cfg.training.n_proc,  # Add n_proc
+        n_proc=cfg.resources.n_proc_per_worker,
         seed=cfg.seed,
         trajectory_len=trajectory_len,  # Only used when training trajectory model
     )
     train_loader = datamodule.train_dataloader()
-    train_loader_eval = datamodule.train_dataloader(shuffle=False)
+    train_val_loader = datamodule.train_val_dataloader()
     val_loader = datamodule.val_dataloader()
     unseen_loader = datamodule.unseen_dataloader()
 
@@ -92,7 +91,7 @@ def main(cfg):
     # and eval can be the same.
     #
     # If it's a custom network, a good idea is to put the custom network
-    # in `python_ml_project_template.nets.my_net`.
+    # in `open_anything_diffusion.nets.my_net`.
     ######################################################################
 
     # Model architecture is dataset-dependent, so we have a helper
@@ -207,15 +206,8 @@ def main(cfg):
     # Train the model.
     ######################################################################
 
-    trainer.fit(model, train_loader, [train_loader_eval, val_loader, unseen_loader])
+    trainer.fit(model, train_loader, [train_val_loader, val_loader, unseen_loader])
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--flowbot", action="store_true")
-    args = parser.parse_args()
-    train_name = "flowbot" if args.flowbot else "trajectory"
-
-    initialize(config_path="../configs", version_base="1.3")
-    cfg = compose(config_name=f"train_{train_name}")
-    main(cfg)
+    main()
