@@ -1,5 +1,5 @@
 import typing
-from typing import Dict
+from typing import Any, Dict
 
 import lightning as L
 import plotly.graph_objects as go
@@ -37,11 +37,13 @@ class FlowPredictorTrainingModule(L.LightningModule):
         # Compute the loss.
         n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
         f_ix = batch.mask.bool()
-        f_target = batch.flow
+        f_target = batch.flow.float()
         loss = artflownet_loss(f_pred, f_target, n_nodes)
 
         # Compute some metrics on flow-only regions.
         rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
+        # import pdb
+        # pdb.set_trace()
 
         self.log_dict(
             {
@@ -66,7 +68,7 @@ class FlowPredictorTrainingModule(L.LightningModule):
     def training_step(self, batch: tgd.Batch, batch_id):  # type: ignore
         self.train()
         f_pred, loss = self._step(batch, "train")
-        return loss
+        return {"loss": loss, "preds": f_pred}
 
     def validation_step(self, batch: tgd.Batch, batch_id, dataloader_idx=0):  # type: ignore
         self.eval()
@@ -152,8 +154,11 @@ class FlowPredictorInferenceModule(L.LightningModule):
 
         return flow
 
-    # TODO: the predict step input is different now, pay attention
-    def predict_step(self, xyz: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:  # type: ignore
+        return self.forward(batch)
+
+    # the predict step input is different now, pay attention
+    def predict(self, xyz: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """Predict the flow for a single object. The point cloud should
         come straight from the maniskill processed observation function.
 
@@ -164,6 +169,7 @@ class FlowPredictorInferenceModule(L.LightningModule):
         Returns:
             torch.Tensor: Nx3 dense flow prediction
         """
+        print(xyz, mask)
         assert len(xyz) == len(mask)
         assert len(xyz.shape) == 2
         assert len(mask.shape) == 1

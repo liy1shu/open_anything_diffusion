@@ -1,8 +1,8 @@
-name: flowbot
+name: trajectory
 data_dir: ${oc.env:HOME}/datasets/partnet-mobility
 
 dataset: umpnet
-model: flowbot
+model: trajectory
 batch_size: 64
 lr: 1e-3
 mask_input_channel: True
