@@ -1,7 +1,5 @@
-import os
 from pathlib import Path
 
-os.environ["WANDB_SILENT"] = "true"
 import hydra
 import lightning as L
 import omegaconf
@@ -44,7 +42,7 @@ def main(cfg):
         root=cfg.dataset.data_dir,
         batch_size=cfg.inference.batch_size,
         num_workers=cfg.resources.num_workers,
-        n_proc=cfg.inference.n_proc,  # Add n_proc
+        n_proc=cfg.resources.n_proc_per_worker,  # Add n_proc
     )
     train_loader = datamodule.train_dataloader()
     val_loader = datamodule.val_dataloader()
@@ -147,7 +145,7 @@ def main(cfg):
     ######################################################################
 
     dataloaders = [
-        (datamodule.train_dataloader(shuffle=False), "train"),
+        (datamodule.train_val_dataloader(), "train"),
         (datamodule.val_dataloader(), "val"),
         (datamodule.unseen_dataloader(), "test"),
     ]
@@ -204,7 +202,8 @@ def main(cfg):
         df.loc["unweighted_mean"] = raw_df.mean(numeric_only=True)
         df.loc["class_mean"] = df.mean()
 
-        out_file = Path(cfg.metric_output_dir) / f"{cfg.dataset.name}_{name}.csv"
+        out_file = Path(cfg.log_dir) / f"{cfg.dataset.name}_{name}.csv"
+        print(out_file)
         if out_file.exists():
             raise ValueError(f"{out_file} already exists...")
         df.to_csv(out_file, float_format="%.3f")
