@@ -1,3 +1,4 @@
+import copy
 import functools
 import json
 import os
@@ -763,7 +764,10 @@ def run_trial(
     pc_obs = env.render(filter_nonobj_pts=True, n_pts=n_pts)
     rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
 
-    pred_trajectory = model(pc_obs)
+    pred_trajectory = model(copy.deepcopy(pc_obs))
+    pred_trajectory = pred_trajectory.reshape(
+        pred_trajectory.shape[0], -1, pred_trajectory.shape[-1]
+    )
     pred_flow = pred_trajectory[:, 0, :]
 
     # flow_fig(torch.from_numpy(P_world), pred_flow, sizeref=0.1, use_v2=True).show()
@@ -793,11 +797,13 @@ def run_trial(
 
     pc_obs = env.render(filter_nonobj_pts=True, n_pts=n_pts)
     success = False
-    print("TWO!", pc_obs)
 
     for i in range(n_steps):
         # Predict the flow on the observation.
         pred_trajectory = model(pc_obs)
+        pred_trajectory = pred_trajectory.reshape(
+            pred_trajectory.shape[0], -1, pred_trajectory.shape[-1]
+        )
 
         for traj_step in range(traj_len):
             pred_flow = pred_trajectory[:, traj_step, :]

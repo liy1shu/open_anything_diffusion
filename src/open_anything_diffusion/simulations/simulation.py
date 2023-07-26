@@ -53,8 +53,8 @@ def trial_gt_trajectory(obj_id="41083", traj_len=10, gui=False):
     run_trial(env, raw_data, joint.name, model, n_steps=1, traj_len=traj_len)
 
 
-# TODO: Trial with model predicted trajectories
-def trial_with_prediction(obj_id="41083", traj_len=15, gui=False):
+# Trial with model predicted trajectories
+def trial_with_prediction(obj_id="41083", traj_len=15, n_step=1, gui=False):
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     env = PMSuctionSim(obj_id, pm_dir, gui=gui)
     raw_data = PMRawData(os.path.join(pm_dir, obj_id))
@@ -63,10 +63,10 @@ def trial_with_prediction(obj_id="41083", traj_len=15, gui=False):
         "slider"
     )
 
-    # TODO: Load prediction model
+    # Load prediction model
     joint = available_joints[np.random.randint(0, len(available_joints))]
-    # TODO: make predictions
-    # TODO: filter only needed part
+    # make predictions
+    # filter only needed part
     network = pnp.PN2Dense(
         in_channels=1, out_channels=3 * traj_len, p=pnp.PN2DenseParams()
     )
@@ -82,7 +82,10 @@ def trial_with_prediction(obj_id="41083", traj_len=15, gui=False):
     # else:
     #     ckpt_file = checkpoint_reference
 
-    ckpt_file = "/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-19/14-51-22/checkpoints/epoch=94-step=74670-val_loss=0.00-weights-only.ckpt"
+    # length = 15
+    # ckpt_file = "/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-19/14-51-22/checkpoints/epoch=94-step=74670-val_loss=0.00-weights-only.ckpt"
+    # length = 1
+    ckpt_file = "/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt"
     # Load the network weights.
     ckpt = torch.load(ckpt_file)
     network.load_state_dict(
@@ -92,10 +95,12 @@ def trial_with_prediction(obj_id="41083", traj_len=15, gui=False):
 
     # t0 = time.perf_counter()
     print(f"opening {joint.name}, {joint.label}")
-    run_trial(env, raw_data, joint.name, model, n_steps=1, traj_len=traj_len)
+    run_trial(env, raw_data, joint.name, model, n_steps=n_step, traj_len=traj_len)
 
 
 if __name__ == "__main__":
-    # trial_flow(obj_id="41083", gui=False)
-    # trial_gt_trajectory(obj_id="41083", traj_len=10, gui=True)
-    trial_with_prediction(obj_id="41083", traj_len=15, gui=True)
+    np.random.seed(42)
+    # trial_flow(obj_id="41083", gui=True)
+    trial_gt_trajectory(obj_id="35059", traj_len=15, gui=True)
+    # trial_with_prediction(obj_id="35059", traj_len=15, n_step=1, gui=True)
+    # trial_with_prediction(obj_id="35059", traj_len=1, n_step=15, gui=True)
