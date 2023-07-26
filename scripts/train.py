@@ -1,4 +1,3 @@
-import argparse
 import json
 
 import hydra
@@ -7,7 +6,6 @@ import omegaconf
 import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import wandb
-from hydra import compose, initialize
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
@@ -76,7 +74,7 @@ def main(cfg):
         trajectory_len=trajectory_len,  # Only used when training trajectory model
     )
     train_loader = datamodule.train_dataloader()
-    train_loader_eval = datamodule.train_dataloader(shuffle=False)
+    train_val_loader = datamodule.train_val_dataloader()
     val_loader = datamodule.val_dataloader()
     unseen_loader = datamodule.unseen_dataloader()
 
@@ -208,7 +206,7 @@ def main(cfg):
     # Train the model.
     ######################################################################
 
-    trainer.fit(model, train_loader, [train_loader_eval, val_loader, unseen_loader])
+    trainer.fit(model, train_loader, [train_val_loader, val_loader, unseen_loader])
 
 
 if __name__ == "__main__":

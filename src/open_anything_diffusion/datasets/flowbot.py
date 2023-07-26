@@ -3,10 +3,10 @@ import os
 import lightning as L
 import rpad.partnet_mobility_utils.dataset as rpd
 import torch_geometric.loader as tgl
+from flowbot3d.datasets.flow_dataset_pyg import Flowbot3DPyGDataset
 from rpad.pyg.dataset import CachedByKeyDataset
 
-# from flowbot3d.datasets.flow_dataset_pyg import Flowbot3DPyGDataset
-from open_anything_diffusion.datasets.flow_dataset_pyg import Flowbot3DPyGDataset
+# from open_anything_diffusion.datasets.flow_dataset_pyg import Flowbot3DPyGDataset
 
 
 class FlowBotDataModule(L.LightningDataModule):
