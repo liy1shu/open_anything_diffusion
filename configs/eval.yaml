@@ -29,7 +29,8 @@ checkpoint:
   reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
 
 resources:
-  num_workers: 4
+  num_workers: 30
+  n_proc_per_worker: 2
   gpus:
     - 0
 
@@ -37,5 +38,3 @@ wandb:
   # The group ***should*** be the same as the training group (so it can be bundled)
   # nicely in the UI. But you might have a one-off eval or something.
   group: ???
-
-metric_output_dir: './logs'
