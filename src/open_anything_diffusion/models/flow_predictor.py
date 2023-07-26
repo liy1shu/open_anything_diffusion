@@ -37,7 +37,7 @@ class FlowPredictorTrainingModule(L.LightningModule):
         # Compute the loss.
         n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
         f_ix = batch.mask.bool()
-        f_target = batch.flow
+        f_target = batch.flow.float()
         loss = artflownet_loss(f_pred, f_target, n_nodes)
 
         # Compute some metrics on flow-only regions.
@@ -66,11 +66,9 @@ class FlowPredictorTrainingModule(L.LightningModule):
         return [optimizer], [lr_scheduler]
 
     def training_step(self, batch: tgd.Batch, batch_id):  # type: ignore
-        # import pdb
-        # pdb.set_trace()
         self.train()
         f_pred, loss = self._step(batch, "train")
-        return loss
+        return {"loss": loss, "preds": f_pred}
 
     def validation_step(self, batch: tgd.Batch, batch_id, dataloader_idx=0):  # type: ignore
         self.eval()
