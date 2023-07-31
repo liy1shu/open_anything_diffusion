@@ -57,6 +57,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
                 True, randomize_camera, trajectory_len
             ),
+            n_repeat=1,
             n_workers=num_workers,
             n_proc_per_worker=n_proc,
             seed=seed,
