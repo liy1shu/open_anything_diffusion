@@ -383,7 +383,7 @@ class PMSuctionSim:
             cameraDistance=1.2,
             cameraYaw=-90,
             cameraPitch=-30,
-            cameraTargetPosition=[-3, 0, 1.2],
+            cameraTargetPosition=[-3, 0, 1.2],  # -3
             physicsClientId=self.client_id,
         )
 
@@ -900,8 +900,11 @@ def run_trial(
     env.reset()
 
     # Sometimes doors collide with themselves. It's dumb.
-    # if raw_data.category == "Door" and raw_data.semantics.by_name(target_link).type == "hinge":
-    #     env.set_joint_state(target_link, 0.2)
+    if (
+        raw_data.category == "Door"
+        and raw_data.semantics.by_name(target_link).type == "hinge"
+    ):
+        env.set_joint_state(target_link, 0.2)
 
     if raw_data.semantics.by_name(target_link).type == "hinge":
         env.set_joint_state(target_link, 0.05)
@@ -923,7 +926,17 @@ def run_trial(
 
     # Filter down just the points on the target link.
     link_ixs = pc_seg == env.link_name_to_index[target_link]
-    assert link_ixs.any()
+    # assert link_ixs.any()
+    if not link_ixs.any():
+        p.disconnect(physicsClientId=env.client_id)
+        return None, TrialResult(
+            success=False,
+            contact=False,
+            init_angle=0,
+            final_angle=0,
+            now_angle=0,
+            metric=0,
+        )
 
     # The attachment point is the point with the highest flow.
     best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
@@ -934,12 +947,15 @@ def run_trial(
     contact = env.teleport_and_approach(best_point, best_flow)
 
     if not contact:
+        segmented_flow = np.zeros_like(pred_flow)
+        segmented_flow[link_ixs] = pred_flow[link_ixs]
         animation.add_trace(
             torch.as_tensor(P_world),
             torch.as_tensor([P_world]),
-            torch.as_tensor([pred_flow.detach().numpy()]),
+            torch.as_tensor([segmented_flow]),
             "red",
         )
+        p.disconnect(physicsClientId=env.client_id)
         return animation.animate(), TrialResult(
             success=False,
             contact=False,
@@ -965,14 +981,6 @@ def run_trial(
             pred_flow = pred_trajectory[:, traj_step, :]
             rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
 
-            # Add pcd to flow animation
-            animation.add_trace(
-                torch.as_tensor(P_world),
-                torch.as_tensor([P_world]),
-                torch.as_tensor([pred_flow.detach().numpy()]),
-                "red",
-            )
-
             # # TODO: simulation environment data
             # simu_points_x, simu_points_y, simu_points_z, simu_colors = get_points(env)
             # simulation_frames["x"].append(simu_points_x)
@@ -982,7 +990,27 @@ def run_trial(
 
             # Filter down just the points on the target link.
             link_ixs = pc_seg == env.link_name_to_index[target_link]
-            assert link_ixs.any()
+            # assert link_ixs.any()
+            if not link_ixs.any():
+                p.disconnect(physicsClientId=env.client_id)
+                return None, TrialResult(
+                    success=False,
+                    contact=False,
+                    init_angle=0,
+                    final_angle=0,
+                    now_angle=0,
+                    metric=0,
+                )
+
+            # Add pcd to flow animation
+            segmented_flow = np.zeros_like(pred_flow)
+            segmented_flow[link_ixs] = pred_flow[link_ixs]
+            animation.add_trace(
+                torch.as_tensor(P_world),
+                torch.as_tensor([P_world]),
+                torch.as_tensor([segmented_flow]),
+                "red",
+            )
 
             # Get the best direction.
             best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()

@@ -75,6 +75,8 @@ def trial_with_prediction(
         "slider"
     )
 
+    print("available_joints:", available_joints)
+
     model = FlowSimulationInferenceModule(network)
 
     if all_joint:  # Need to traverse all the joints
@@ -89,6 +91,12 @@ def trial_with_prediction(
         print(f"opening {joint.name}, {joint.label}")
         env = PMSuctionSim(obj_id, pm_dir, gui=gui)
         fig, result = run_trial(env, raw_data, joint.name, model, n_steps=n_step)
+        if fig is None:
+            with open(
+                "/home/yishu/open_anything_diffusion/logs/assertion_failure.txt", "a"
+            ) as f:
+                f.write(f"Object: {obj_id}; Joint: {joint.name}\n")
+            continue
         figs[joint.name] = fig
         results.append(result)
 
@@ -109,7 +117,7 @@ if __name__ == "__main__":
     # length = 1
     # network_1 = create_network(traj_len=15, ckpt_file="/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt")
     figs, trial_results = trial_with_prediction(
-        obj_id="41083", network=network_15, n_step=1, gui=True, all_joint=False
+        obj_id="103639", network=network_15, n_step=1, gui=True, all_joint=True
     )
     print(trial_results)
     figs[list(figs.keys())[0]].show()
