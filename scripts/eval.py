@@ -44,8 +44,6 @@ def main(cfg):
         num_workers=cfg.resources.num_workers,
         n_proc=cfg.resources.n_proc_per_worker,  # Add n_proc
     )
-    train_loader = datamodule.train_dataloader()
-    val_loader = datamodule.val_dataloader()
 
     ######################################################################
     # Set up logging in WandB.
@@ -117,6 +115,7 @@ def main(cfg):
     # environment, for instance.
     ######################################################################
 
+    # TODO: change to support trajectory
     model = FlowPredictorInferenceModule(network, inference_config=cfg.inference)
 
     ######################################################################

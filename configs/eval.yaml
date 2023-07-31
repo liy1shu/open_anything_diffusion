@@ -25,7 +25,8 @@ seed: 42
 # like if you want multiple checkpoints simultaneously, etc.
 checkpoint:
   # If we want to load a model for a specific run, we can change that here.
-  run_id: ???
+  # run_id: ???
+  run_id: nxe7uxh4
   reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
 
 resources:
@@ -37,6 +38,7 @@ resources:
 wandb:
   # The group ***should*** be the same as the training group (so it can be bundled)
   # nicely in the UI. But you might have a one-off eval or something.
-  group: ???
+  # group: ???
+  group: experiment-9uex8k1u
 
 metric_output_dir: './logs'

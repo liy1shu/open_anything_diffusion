@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 
 import numpy as np
+import plotly.graph_objects as go
 import pybullet as p
 import pybullet_data
 import torch
+from flowbot3d.grasping.agents.flowbot3d import FlowNetAnimation
 from scipy.spatial.transform import Rotation as R
 
 from open_anything_diffusion.simulations.calc_art import compute_new_points
@@ -377,6 +379,14 @@ class PMSuctionSim:
         self.client_id = p.connect(p.GUI if gui else p.DIRECT)
         self.gui = gui
         # Add in a plane.
+        p.resetDebugVisualizerCamera(
+            cameraDistance=1.2,
+            cameraYaw=-90,
+            cameraPitch=-30,
+            cameraTargetPosition=[-3, 0, 1.2],
+            physicsClientId=self.client_id,
+        )
+
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         # self.plane_id = p.loadURDF("plane.urdf", physicsClientId=self.client_id)
 
@@ -419,7 +429,6 @@ class PMSuctionSim:
         )
 
         self.camera = Camera(pos=[-3, 0, 1.2], znear=0.01, zfar=10)
-
         # From https://pybullet.org/Bullet/phpBB3/viewtopic.php?f=24&t=12728&p=42293&hilit=linkIndex#p42293
         self.link_name_to_index = {
             p.getBodyInfo(self.obj_id, physicsClientId=self.client_id)[0].decode(
@@ -662,14 +671,15 @@ class PMSuctionSim:
 @dataclass
 class TrialResult:
     success: bool
+    contact: bool
     init_angle: float
     final_angle: float
+    now_angle: float
 
     # UMPNet metric goes here
     metric: float
 
 
-# TODO: change to the existing flow calculation method (No need to keep two functions)
 class GTFlowModel:
     def __init__(self, raw_data, env):
         self.env = env
@@ -702,7 +712,6 @@ class GTFlowModel:
 
 
 class GTTrajectoryModel:
-    # TODO: Generates trajectory
     def __init__(self, raw_data, env, traj_len=20):
         self.raw_data = raw_data
         self.env = env
@@ -741,6 +750,140 @@ class GTTrajectoryModel:
         return torch.from_numpy(trajectory)
 
 
+def visualize_simulation(simulation_data):
+    fig = go.Figure(
+        data=[
+            go.Scatter3d(
+                x=simulation_data["x"][0],
+                y=simulation_data["y"][0],
+                z=simulation_data["z"][0],
+                mode="markers",
+                marker=dict(
+                    size=5,
+                    color=simulation_data["color"][0],
+                    colorscale="Viridis",
+                    colorbar=dict(title="Color"),
+                ),
+            )
+        ],
+        layout=go.Layout(
+            scene=dict(
+                xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")
+            ),
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    showactive=False,
+                    buttons=[
+                        {
+                            "label": "Play",
+                            "method": "animate",
+                            "args": [
+                                None,
+                                {
+                                    "frame": {"duration": 9000, "redraw": True},
+                                    "fromcurrent": True,
+                                    "mode": "immediate",
+                                },
+                            ],
+                        },
+                        {
+                            "label": "Pause",
+                            "method": "animate",
+                            "args": [
+                                [None],
+                                {
+                                    "frame": {"duration": 0, "redraw": True},
+                                    "mode": "immediate",
+                                },
+                            ],
+                        },
+                    ],
+                )
+            ],
+            sliders=[
+                dict(
+                    steps=[
+                        dict(
+                            args=[
+                                [str(i)],
+                                {
+                                    "frame": {"duration": 0, "redraw": True},
+                                    "mode": "immediate",
+                                },
+                            ],
+                            label=str(i),
+                        )
+                        for i in range(len(simulation_data["x"]))
+                    ],
+                    currentvalue={
+                        "visible": True,
+                        "prefix": "Time Step: ",
+                        "xanchor": "right",
+                    },
+                    transition={"duration": 300, "easing": "cubic-in-out"},
+                    pad={"b": 10, "t": 50},
+                    len=0.9,
+                    x=0.1,
+                    y=0,
+                )
+            ],
+        ),
+        frames=[
+            go.Frame(
+                data=go.Scatter3d(
+                    x=simulation_data["x"][i],
+                    y=simulation_data["y"][i],
+                    z=simulation_data["z"][i],
+                    mode="markers",
+                    marker=dict(
+                        size=5,
+                        color=simulation_data["color"][i],
+                        colorscale="Viridis",
+                        colorbar=dict(title="Color"),
+                    ),
+                ),
+                name=str(i),
+            )
+            for i in range(len(simulation_data["x"]))
+        ],
+    )
+
+    return fig
+
+
+def get_points(env: PMSuctionSim):
+    visual_shapes = p.getVisualShapeData(
+        env.client_id
+    )  # Modify the robot_id if you want to get data for other objects
+    print(len(visual_shapes))
+
+    # Extract positions and colors of points from the visual shape data
+    xs, ys, zs = [], [], []
+    colors = []
+    for shape in visual_shapes:
+        print(shape[2], p.GEOM_SPHERE)
+        # if shape[2] == p.GEOM_SPHERE:  # Check if the shape is a sphere (assuming points are represented as spheres)
+        # x, y, z = shape[5]  # Extract the position of the sphere center (x, y, z)
+        # color = shape[7][:3]  # Extract the color of the sphere (r, g, b) - Ignore alpha (4th element)
+        # xs.append(x)
+        # ys.append(y)
+        # zs.append(z)
+        # colors.append(color)
+        x, y, z = shape[5]  # Extract the position of the sphere center (x, y, z)
+        color = shape[7][
+            :3
+        ]  # Extract the color of the sphere (r, g, b) - Ignore alpha (4th element)
+        xs.append(x)
+        ys.append(y)
+        zs.append(z)
+        colors.append(color)
+
+    print(xs, ys, zs, colors)
+    print(len(xs))
+    return xs, ys, zs, colors
+
+
 def run_trial(
     env: PMSuctionSim,
     raw_data: PMRawData,
@@ -748,8 +891,11 @@ def run_trial(
     model,
     n_steps: int = 30,
     n_pts: int = 1200,
-    traj_len: int = 1,  # By default, only move one step
 ) -> TrialResult:
+    # Flow animation
+    animation = FlowNetAnimation()
+    # simulation_frames = {"x":[], "y":[], "z":[], "color":[]}
+
     # First, reset the environment.
     env.reset()
 
@@ -768,6 +914,8 @@ def run_trial(
     pred_trajectory = pred_trajectory.reshape(
         pred_trajectory.shape[0], -1, pred_trajectory.shape[-1]
     )
+    traj_len = pred_trajectory.shape[1]  # Trajectory length
+    print(f"Predicting {traj_len} length trajectories.")
     pred_flow = pred_trajectory[:, 0, :]
 
     # flow_fig(torch.from_numpy(P_world), pred_flow, sizeref=0.1, use_v2=True).show()
@@ -786,10 +934,18 @@ def run_trial(
     contact = env.teleport_and_approach(best_point, best_flow)
 
     if not contact:
-        return TrialResult(
+        animation.add_trace(
+            torch.as_tensor(P_world),
+            torch.as_tensor([P_world]),
+            torch.as_tensor([pred_flow.detach().numpy()]),
+            "red",
+        )
+        return animation.animate(), TrialResult(
             success=False,
+            contact=False,
             init_angle=0,
             final_angle=0,
+            now_angle=0,
             metric=0,
         )
 
@@ -805,9 +961,24 @@ def run_trial(
             pred_trajectory.shape[0], -1, pred_trajectory.shape[-1]
         )
 
-        for traj_step in range(traj_len):
+        for traj_step in range(pred_trajectory.shape[1]):
             pred_flow = pred_trajectory[:, traj_step, :]
             rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
+
+            # Add pcd to flow animation
+            animation.add_trace(
+                torch.as_tensor(P_world),
+                torch.as_tensor([P_world]),
+                torch.as_tensor([pred_flow.detach().numpy()]),
+                "red",
+            )
+
+            # # TODO: simulation environment data
+            # simu_points_x, simu_points_y, simu_points_z, simu_colors = get_points(env)
+            # simulation_frames["x"].append(simu_points_x)
+            # simulation_frames["y"].append(simu_points_y)
+            # simulation_frames["z"].append(simu_points_z)
+            # simulation_frames["color"].append(simu_colors)
 
             # Filter down just the points on the target link.
             link_ixs = pc_seg == env.link_name_to_index[target_link]
@@ -827,13 +998,22 @@ def run_trial(
 
             pc_obs = env.render(filter_nonobj_pts=True, n_pts=1200)
 
-    init_angle = 0.0
-    final_angle = 0.0
-    metric = 0.0
+    # calculate the metrics
+    info = p.getJointInfo(
+        env.obj_id, env.link_name_to_index[target_link], env.client_id
+    )
+    init_angle, target_angle = info[8], info[9]
+    curr_pos = env.get_joint_value(target_link)
+    metric = (curr_pos - init_angle) / (target_angle - init_angle)
+    metric = min(metric, 1)
 
-    return TrialResult(
+    p.disconnect(physicsClientId=env.client_id)
+    return animation.animate(), TrialResult(  # Save the flow visuals
+        # return visualize_simulation(simulation_frames), TrialResult(
         success=success,
+        contact=True,
         init_angle=init_angle,
-        final_angle=final_angle,
+        final_angle=target_angle,
+        now_angle=curr_pos,
         metric=metric,
     )

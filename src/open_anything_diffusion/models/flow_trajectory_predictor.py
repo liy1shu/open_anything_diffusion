@@ -204,7 +204,8 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
         return {"artflownet_plot": fig}
 
 
-class FlowPredictorInferenceModule(L.LightningModule):
+# TODO: Implement this for trajectory eval
+class FlowTrajectoryInferenceModule(L.LightningModule):
     def __init__(self, network, inference_config) -> None:
         super().__init__()
         self.network = network
@@ -263,5 +264,5 @@ class FlowSimulationInferenceModule(L.LightningModule):
         self.eval()
         with torch.no_grad():
             trajectory = self.network(batch)
-        print("Trajectory prediction shape:", trajectory.shape)
+        # print("Trajectory prediction shape:", trajectory.shape)
         return trajectory.reshape(trajectory.shape[0], -1, 3)

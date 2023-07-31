@@ -8,7 +8,6 @@ from scipy.spatial.transform import Rotation as R
 
 __ASSETS_CHUNK = "assets"
 ASSETS_DIR = Path(__file__).parent / __ASSETS_CHUNK
-print(ASSETS_DIR)
 SUCTION_BASE_URDF = str(ASSETS_DIR / "suction/suction-base.urdf")
 SUCTION_HEAD_URDF = str(ASSETS_DIR / "suction/suction-head.urdf")
 
