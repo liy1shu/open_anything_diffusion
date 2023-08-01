@@ -10,13 +10,15 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 import torch
+
+# from open_anything_diffusion.simulations.floating_vacuum_gripper import (
+#     FloatingSuctionGripper,
+# )
+from rpad.pybullet_envs.suction_gripper import FloatingSuctionGripper
 from scipy.spatial.transform import Rotation as R
 
 from open_anything_diffusion.simulations.calc_art import compute_new_points
 from open_anything_diffusion.simulations.camera import Camera
-from open_anything_diffusion.simulations.floating_vacuum_gripper import (
-    FloatingSuctionGripper,
-)
 from open_anything_diffusion.simulations.pm_raw import PMRawData
 from open_anything_diffusion.simulations.utils import get_obj_z_offset, suppress_stdout
 
@@ -413,10 +415,12 @@ class PMSuctionSim:
 
         # Add in the robot.
         pos, orient = [-1, 0, 1], p.getQuaternionFromEuler([0, np.pi / 2, 0])
-        self.gripper = FloatingSuctionGripper(self.obj_id, self.client_id)
+        # self.gripper = FloatingSuctionGripper(self.client_id, self.obj_id)
+        self.gripper = FloatingSuctionGripper(self.client_id)
         self.gripper.set_pose(
             [-1, 0.6, 0.8], p.getQuaternionFromEuler([0, np.pi / 2, 0])
         )
+        self.gripper.activate(self.obj_id)
 
         self.camera = Camera(pos=[-3, 0, 1.2], znear=0.01, zfar=10)
 
