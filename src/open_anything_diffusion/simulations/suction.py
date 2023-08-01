@@ -938,6 +938,12 @@ def run_trial(
             metric=0,
         )
 
+    # Record simulation video
+    log_id = p.startStateLogging(
+        p.STATE_LOGGING_VIDEO_MP4,
+        "/home/yishu/open_anything_diffusion/logs/simulation_videos/example.mp4",
+    )
+
     # The attachment point is the point with the highest flow.
     best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
     best_flow = pred_flow[link_ixs][best_flow_ix]
@@ -955,6 +961,7 @@ def run_trial(
             torch.as_tensor([segmented_flow]),
             "red",
         )
+        p.stopStateLogging(log_id)
         p.disconnect(physicsClientId=env.client_id)
         return animation.animate(), TrialResult(
             success=False,
@@ -992,6 +999,7 @@ def run_trial(
             link_ixs = pc_seg == env.link_name_to_index[target_link]
             # assert link_ixs.any()
             if not link_ixs.any():
+                p.stopStateLogging(log_id)
                 p.disconnect(physicsClientId=env.client_id)
                 return None, TrialResult(
                     success=False,
@@ -1035,6 +1043,7 @@ def run_trial(
     metric = (curr_pos - init_angle) / (target_angle - init_angle)
     metric = min(metric, 1)
 
+    p.stopStateLogging(log_id)
     p.disconnect(physicsClientId=env.client_id)
     return animation.animate(), TrialResult(  # Save the flow visuals
         # return visualize_simulation(simulation_frames), TrialResult(
