@@ -128,6 +128,7 @@ def main(cfg):
     # Simulation and results.
     print("Simulating")
     # Visualization html
+    os.makedirs("./logs/simu_eval/video_assets/")
     doc = html.PlotlyWebsiteBuilder("Simulation Visualizations")
     obj_cats = list(set(id_to_cat.values()))
     metric_df = pd.DataFrame(
@@ -137,9 +138,11 @@ def main(cfg):
     )
     category_counts = {}
     for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
+        if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
+            continue
         print(f"OBJ {obj_id} of {obj_cat}")
         trial_figs, trial_results = trial_with_prediction(
-            obj_id=obj_id, network=network, n_step=30, gui=False, all_joint=True
+            obj_id=obj_id, network=network, n_step=30, gui=True, all_joint=True
         )
 
         # Wandb table
@@ -154,6 +157,9 @@ def main(cfg):
         for joint_name, fig in trial_figs.items():
             tag = f"{obj_id}_{joint_name}"
             doc.add_plot(obj_cat, tag, fig)
+            doc.add_video(
+                obj_cat, tag, f"http://128.2.178.238:9000/video_assets/{tag}.mp4"
+            )
         # print(trial_results)
         doc.write_site("./logs/simu_eval")
 

@@ -90,7 +90,14 @@ def trial_with_prediction(
         # t0 = time.perf_counter()
         print(f"opening {joint.name}, {joint.label}")
         env = PMSuctionSim(obj_id, pm_dir, gui=gui)
-        fig, result = run_trial(env, raw_data, joint.name, model, n_steps=n_step)
+        fig, result = run_trial(
+            env,
+            raw_data,
+            joint.name,
+            model,
+            n_steps=n_step,
+            save_name=f"{obj_id}_{joint.name}",
+        )
         if fig is None:
             with open(
                 "/home/yishu/open_anything_diffusion/logs/assertion_failure.txt", "a"

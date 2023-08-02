@@ -891,6 +891,7 @@ def run_trial(
     model,
     n_steps: int = 30,
     n_pts: int = 1200,
+    save_name: str = "unknown",
 ) -> TrialResult:
     # Flow animation
     animation = FlowNetAnimation()
@@ -941,7 +942,7 @@ def run_trial(
     # Record simulation video
     log_id = p.startStateLogging(
         p.STATE_LOGGING_VIDEO_MP4,
-        "/home/yishu/open_anything_diffusion/logs/simulation_videos/example.mp4",
+        f"./logs/simu_eval/video_assets/{save_name}.mp4",
     )
 
     # The attachment point is the point with the highest flow.
