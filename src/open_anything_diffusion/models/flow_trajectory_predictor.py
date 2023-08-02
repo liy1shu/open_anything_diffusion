@@ -1,5 +1,5 @@
 import typing
-from typing import Dict
+from typing import Any, Dict
 
 import lightning as L
 import plotly.graph_objects as go
@@ -29,6 +29,7 @@ def flow_metrics(pred_flow, gt_flow):
         mag_error = (
             (pred_flow.norm(p=2, dim=-1) - gt_flow.norm(p=2, dim=-1)).abs().mean()
         )
+    print(rmse, cos_dist, mag_error)
     return rmse, cos_dist, mag_error
 
 

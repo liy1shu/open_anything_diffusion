@@ -190,8 +190,12 @@ def main(cfg):
             st = 0
             for data in batch.to_data_list():
                 f_pred = preds[st : st + data.num_nodes]
+                f_pred = f_pred.reshape(f_pred.shape[0], -1, 3)
                 f_ix = data.mask.bool()
-                f_target = data.flow
+                if cfg.dataset.name == "trajectory":
+                    f_target = data.delta
+                else:
+                    f_target = data.flow
 
                 rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
 

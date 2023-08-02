@@ -1,3 +1,3 @@
 batch_size: 64
-trajectory_len: 5
+trajectory_len: 20
 mask_input_channel: True

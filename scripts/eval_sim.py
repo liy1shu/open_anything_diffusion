@@ -39,7 +39,7 @@ def load_obj_id_to_category():
 id_to_cat = load_obj_id_to_category()
 
 
-@hydra.main(config_path="../configs", config_name="eval", version_base="1.3")
+@hydra.main(config_path="../configs", config_name="eval_sim", version_base="1.3")
 def main(cfg):
     ######################################################################
     # Torch settings.
