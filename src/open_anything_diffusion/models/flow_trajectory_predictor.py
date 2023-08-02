@@ -9,7 +9,7 @@ import torch_geometric.data as tgd
 from flowbot3d.grasping.agents.flowbot3d import FlowNetAnimation
 
 # from flowbot3d.models.artflownet import artflownet_loss, flow_metrics
-from flowbot3d.models.artflownet import artflownet_loss
+# from flowbot3d.models.artflownet import artflownet_loss
 from plotly.subplots import make_subplots
 from torch import optim
 
@@ -217,11 +217,15 @@ class FlowTrajectoryInferenceModule(L.LightningModule):
             data.x = data.mask.reshape(len(data.mask), 1)
 
         # Run the model.
-        flow = typing.cast(torch.Tensor, self.network(data))
+        trajectory = typing.cast(torch.Tensor, self.network(data))
 
-        return flow
+        return trajectory
 
-    def predict_step(self, xyz: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:  # type: ignore
+        return self.forward(batch)
+
+    # the predict step input is different now, pay attention
+    def predict(self, xyz: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """Predict the flow for a single object. The point cloud should
         come straight from the maniskill processed observation function.
 
@@ -232,6 +236,7 @@ class FlowTrajectoryInferenceModule(L.LightningModule):
         Returns:
             torch.Tensor: Nx3 dense flow prediction
         """
+        print(xyz, mask)
         assert len(xyz) == len(mask)
         assert len(xyz.shape) == 2
         assert len(mask.shape) == 1
@@ -241,8 +246,8 @@ class FlowTrajectoryInferenceModule(L.LightningModule):
         batch = batch.to(self.device)
         self.eval()
         with torch.no_grad():
-            flow = self.forward(batch)
-        return flow
+            trajectory = self.forward(batch)
+        return trajectory.reshape(trajectory.shape[0], -1, 3)  # batch * traj_len * 3
 
 
 class FlowSimulationInferenceModule(L.LightningModule):

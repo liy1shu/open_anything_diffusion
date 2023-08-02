@@ -9,11 +9,27 @@ import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import tqdm
 import wandb
-from flowbot3d.models.artflownet import flow_metrics
 
+from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
 from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
 from open_anything_diffusion.models.flow_predictor import FlowPredictorInferenceModule
+
+# from flowbot3d.models.artflownet import flow_metrics
+from open_anything_diffusion.models.flow_trajectory_predictor import (
+    FlowTrajectoryInferenceModule,
+    flow_metrics,
+)
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
+
+data_module_class = {
+    "flowbot": FlowBotDataModule,
+    "trajectory": FlowTrajectoryDataModule,
+}
+
+inference_module_class = {
+    "flowbot": FlowPredictorInferenceModule,
+    "trajectory": FlowTrajectoryInferenceModule,
+}
 
 
 @torch.no_grad()
@@ -38,11 +54,17 @@ def main(cfg):
     # Should be the same one as in training, but we're gonna use val+test
     # dataloaders.
     ######################################################################
-    datamodule = FlowBotDataModule(
+    trajectory_len = (
+        1 if cfg.dataset.name == "flowbot" else cfg.inference.trajectory_len
+    )
+    # Create FlowBot dataset
+    datamodule = data_module_class[cfg.dataset.name](
         root=cfg.dataset.data_dir,
         batch_size=cfg.inference.batch_size,
         num_workers=cfg.resources.num_workers,
-        n_proc=cfg.resources.n_proc_per_worker,  # Add n_proc
+        n_proc=cfg.resources.n_proc_per_worker,
+        seed=cfg.seed,
+        trajectory_len=trajectory_len,  # Only used when inference trajectory model
     )
 
     ######################################################################
@@ -83,7 +105,9 @@ def main(cfg):
 
     mask_channel = 1 if cfg.inference.mask_input_channel else 0
     network = pnp.PN2Dense(
-        in_channels=mask_channel, out_channels=3, p=pnp.PN2DenseParams()
+        in_channels=mask_channel,
+        out_channels=3 * trajectory_len,
+        p=pnp.PN2DenseParams(),
     )
 
     # Get the checkpoint file. If it's a wandb reference, download.
@@ -115,8 +139,9 @@ def main(cfg):
     # environment, for instance.
     ######################################################################
 
-    # TODO: change to support trajectory
-    model = FlowPredictorInferenceModule(network, inference_config=cfg.inference)
+    model = inference_module_class[cfg.dataset.name](
+        network, inference_config=cfg.inference
+    )
 
     ######################################################################
     # Create the trainer.
@@ -201,7 +226,7 @@ def main(cfg):
         df.loc["unweighted_mean"] = raw_df.mean(numeric_only=True)
         df.loc["class_mean"] = df.mean()
 
-        out_file = Path(cfg.log_dir) / f"{cfg.dataset.name}_{name}.csv"
+        out_file = Path(cfg.log_dir) / f"{cfg.dataset.name}_{trajectory_len}_{name}.csv"
         print(out_file)
         if out_file.exists():
             raise ValueError(f"{out_file} already exists...")
