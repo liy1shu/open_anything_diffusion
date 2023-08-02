@@ -13,8 +13,6 @@ import wandb
 from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
 from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
 from open_anything_diffusion.models.flow_predictor import FlowPredictorInferenceModule
-
-# from flowbot3d.models.artflownet import flow_metrics
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowTrajectoryInferenceModule,
     flow_metrics,
@@ -196,6 +194,7 @@ def main(cfg):
                     f_target = data.delta
                 else:
                     f_target = data.flow
+                    f_target = f_target.reshape(f_target.shape[0], -1, 3)
 
                 rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
 
@@ -232,12 +231,12 @@ def main(cfg):
 
         out_file = Path(cfg.log_dir) / f"{cfg.dataset.name}_{trajectory_len}_{name}.csv"
         print(out_file)
-        if out_file.exists():
-            raise ValueError(f"{out_file} already exists...")
+        # if out_file.exists():
+        #     raise ValueError(f"{out_file} already exists...")
         df.to_csv(out_file, float_format="%.3f")
 
         # Log the metrics + table to wandb.
-        table = wandb.Table(dataframe=df)
+        table = wandb.Table(dataframe=df.reset_index())
         run.log({f"{name}_metric_table": table})
 
 

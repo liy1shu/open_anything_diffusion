@@ -5,7 +5,7 @@ job_type: ${mode}_${dataset.name}
 
 defaults:
   # Each of these have their own configuration parameters.
-  - dataset: trajectory
+  - dataset: flowbot
   - model: artflownet
 
   # A set of inference settings for the model. Note that these may be different
@@ -25,8 +25,8 @@ seed: 42
 # like if you want multiple checkpoints simultaneously, etc.
 checkpoint:
   # If we want to load a model for a specific run, we can change that here.
-  run_id: ???
-  # run_id: nxe7uxh4  # flowbot
+  # run_id: ???
+  run_id: nxe7uxh4  # flowbot
   # run_id: ah26pym3  # traj 1
   # run_id: l5stf32k  # traj 5
   # run_id: m2twtvm7   # traj 10
@@ -43,10 +43,10 @@ resources:
 wandb:
   # The group ***should*** be the same as the training group (so it can be bundled)
   # nicely in the UI. But you might have a one-off eval or something.
-  group: ???
-  # group: experiment-9uex8k1u  # flowbot
+  # group: ???
+  group: flowbot  # flowbot
   # group: traj1  # traj 1 experiment-sb009k1f
   # group: traj5  # traj 5 experiment-y2kdp0hq
-  # group: traj20
+  # group: traj1
 
 metric_output_dir: './logs'
