@@ -12,6 +12,8 @@ dependencies = [
   "lightning == 2.0.3",
   "omegaconf == 2.3.0",
   "pandas",
+  "rpad-pybullet-envs @ git+https://github.com/r-pad/pybullet_envs.git",
+  "rpad-pybullet-libs @ git+https://github.com/r-pad/pybullet_libs.git",
   "rpad-partnet-mobility-utils[pybullet] @ git+https://github.com/r-pad/partnet_mobility_utils",
   "rpad-pyg @ git+https://github.com/r-pad/pyg_libs",
   # pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu117

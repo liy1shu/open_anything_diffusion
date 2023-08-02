@@ -20,7 +20,11 @@ from scipy.spatial.transform import Rotation as R
 from open_anything_diffusion.simulations.calc_art import compute_new_points
 from open_anything_diffusion.simulations.camera import Camera
 from open_anything_diffusion.simulations.pm_raw import PMRawData
-from open_anything_diffusion.simulations.utils import get_obj_z_offset, suppress_stdout
+from open_anything_diffusion.simulations.utils import (
+    get_obj_z_offset,
+    isnotebook,
+    suppress_stdout,
+)
 
 # from python_ml_project_template.datasets.flow_trajectory_dataset import compute_normalized_flow, compute_flow_trajectory
 # from part_embedding.flow_prediction.cam_utils import sample_az_ele
@@ -388,7 +392,7 @@ class PMSuctionSim:
         # Add in the object.
         self.obj_id_str = obj_id
         obj_urdf = os.path.join(dataset_path, obj_id, "mobility.urdf")
-        with suppress_stdout():
+        if isnotebook() or "PYTEST_CURRENT_TEST" in os.environ:
             self.obj_id = p.loadURDF(
                 obj_urdf,
                 useFixedBase=True,
@@ -396,6 +400,14 @@ class PMSuctionSim:
                 physicsClientId=self.client_id,
             )
 
+        else:
+            with suppress_stdout():
+                self.obj_id = p.loadURDF(
+                    obj_urdf,
+                    useFixedBase=True,
+                    # flags=p.URDF_MAINTAIN_LINK_ORDER,
+                    physicsClientId=self.client_id,
+                )
         # plugin = p.loadPlugin(egl.get_filename(), "_eglRendererPlugin", self.client_id)
         # p.configureDebugVisualizer(
         #     p.COV_ENABLE_RENDERING, 0, physicsClientId=self.client_id
@@ -420,7 +432,7 @@ class PMSuctionSim:
         self.gripper.set_pose(
             [-1, 0.6, 0.8], p.getQuaternionFromEuler([0, np.pi / 2, 0])
         )
-        self.gripper.activate(self.obj_id)
+        # self.gripper.activate(self.obj_id)
 
         self.camera = Camera(pos=[-3, 0, 1.2], znear=0.01, zfar=10)
 
@@ -572,7 +584,7 @@ class PMSuctionSim:
 
         self.gripper.set_pose(p_teleport, o_teleport)
 
-        contact = self.gripper.detect_contact()
+        contact = self.gripper.detect_contact(self.obj_id)
         max_steps = 500
         curr_steps = 0
         self.gripper.set_velocity(-contact_vector * 0.4, [0, 0, 0])
@@ -582,7 +594,7 @@ class PMSuctionSim:
             if self.gui:
                 time.sleep(1 / 240.0)
             if curr_steps % 10 == 0:
-                contact = self.gripper.detect_contact()
+                contact = self.gripper.detect_contact(self.obj_id)
 
         if contact:
             print("contact detected")
@@ -590,7 +602,7 @@ class PMSuctionSim:
         return contact
 
     def attach(self):
-        self.gripper.activate()
+        self.gripper.activate(self.obj_id)
 
     def pull(self, direction, n_steps: int = 100):
         direction = torch.as_tensor(direction)
@@ -831,8 +843,12 @@ def run_trial(
 
             pc_obs = env.render(filter_nonobj_pts=True, n_pts=1200)
 
+    # TODO: detect the initial angle, final angle, and upper bound, and metric.
+    # Ask Ben for details on this, it's from the UMPNet paper.
+    # Similar to "detect success"
     init_angle = 0.0
     final_angle = 0.0
+    upper_bound = 0.0
     metric = 0.0
 
     return TrialResult(

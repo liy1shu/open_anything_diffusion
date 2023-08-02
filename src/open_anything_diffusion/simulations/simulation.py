@@ -32,7 +32,7 @@ def trial_flow(obj_id="41083", gui=False):
 
     # t0 = time.perf_counter()
     print(f"opening {joint.name}, {joint.label}")
-    run_trial(env, raw_data, joint.name, model, n_steps=10)
+    return run_trial(env, raw_data, joint.name, model, n_steps=10)
 
 
 # Trial with groundtruth trajectories
@@ -100,7 +100,7 @@ def trial_with_prediction(obj_id="41083", traj_len=15, n_step=1, gui=False):
 
 if __name__ == "__main__":
     np.random.seed(42)
-    # trial_flow(obj_id="41083", gui=True)
-    trial_gt_trajectory(obj_id="35059", traj_len=15, gui=False)
+    trial_flow(obj_id="41083", gui=True)
+    # trial_gt_trajectory(obj_id="35059", traj_len=15, gui=True)
     # trial_with_prediction(obj_id="35059", traj_len=15, n_step=1, gui=True)
     # trial_with_prediction(obj_id="35059", traj_len=1, n_step=15, gui=True)
