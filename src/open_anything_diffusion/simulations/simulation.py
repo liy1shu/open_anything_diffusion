@@ -9,7 +9,6 @@ import torch
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowSimulationInferenceModule,
 )
-# from open_anything_diffusion.simulations.pm_raw import PMRawData
 from rpad.partnet_mobility_utils.data import PMObject
 from open_anything_diffusion.simulations.suction import (  # compute_flow,
     GTFlowModel,
@@ -86,7 +85,7 @@ def trial_with_prediction(obj_id="41083", traj_len=15, n_step=1, gui=False):
     # length = 15
     # ckpt_file = "/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-19/14-51-22/checkpoints/epoch=94-step=74670-val_loss=0.00-weights-only.ckpt"
     # length = 1
-    ckpt_file = "/home/yishu/open_anything_backup/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt"
+    ckpt_file = "/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt"
     # Load the network weights.
     ckpt = torch.load(ckpt_file)
     network.load_state_dict(
@@ -101,7 +100,7 @@ def trial_with_prediction(obj_id="41083", traj_len=15, n_step=1, gui=False):
 
 if __name__ == "__main__":
     np.random.seed(42)
-    # trial_flow(obj_id="168", gui=False)
+    # trial_flow(obj_id="35059", gui=False)
     # trial_gt_trajectory(obj_id="35059", traj_len=15, gui=False)
     # trial_with_prediction(obj_id="35059", traj_len=15, n_step=1, gui=False)
     trial_with_prediction(obj_id="35059", traj_len=1, n_step=15, gui=False)

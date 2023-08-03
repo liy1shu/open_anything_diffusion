@@ -205,10 +205,13 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
 
 
 class FlowPredictorInferenceModule(L.LightningModule):
-    def __init__(self, network, inference_config) -> None:
+    def __init__(self, network, inference_config=None) -> None:
         super().__init__()
         self.network = network
-        self.mask_input_channel = inference_config.mask_input_channel
+        if inference_config is None:
+            self.mask_input_channel = True   # default
+        else:
+            self.mask_input_channel = inference_config.mask_input_channel
 
     def forward(self, data) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
@@ -235,8 +238,8 @@ class FlowPredictorInferenceModule(L.LightningModule):
         assert len(xyz.shape) == 2
         assert len(mask.shape) == 1
 
-        data = Data(pos=xyz, mask=mask)
-        batch = Batch.from_data_list([data])
+        data = tgd.Data(pos=xyz, mask=mask)
+        batch = tgd.Batch.from_data_list([data])
         batch = batch.to(self.device)
         self.eval()
         with torch.no_grad():

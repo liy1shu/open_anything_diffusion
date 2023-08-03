@@ -15,67 +15,17 @@ from rpad.pybullet_envs.suction_gripper import FloatingSuctionGripper
 from scipy.spatial.transform import Rotation as R
 
 from rpad.partnet_mobility_utils.articulate import articulate_points
-# from rpad.pybullet_libs.camera import Camera
-# from open_anything_diffusion.simulations.camera import Camera
-from open_anything_diffusion.simulations.new_camera import Camera
+from rpad.pybullet_libs.camera import Camera
 from rpad.partnet_mobility_utils.data import PMObject
-from open_anything_diffusion.simulations.utils import (
+from rpad.pybullet_libs.utils import (
     get_obj_z_offset,
     isnotebook,
     suppress_stdout,
 )
-
-
-def compute_flow(
-    P_world,
-    T_world_base,
-    pc_seg,
-    pm_raw_data: PMObject,
-    linkname: str = "all",
-    linkname_to_id={},
-    close_open=None,
-):
-    flow = np.zeros_like(P_world)
-
-    # joint_states = np.zeros(len(chain))
-    def _compute_flow(link_name):
-        # todo: convert from link_name to link id
-        try:
-            link_id = linkname_to_id[link_name]
-        except:
-            breakpoint()
-        link_ixs = pc_seg == link_id
-        filtered_pc = P_world[link_ixs]
-
-        chain = pm_raw_data.obj.get_chain(link_name)
-        current_ja = np.zeros(len(chain))
-        target_ja = np.zeros(len(chain))
-        target_ja[-1] = 0.01
-        if close_open == 0:
-            target_ja[-1] = 0.01
-        elif close_open == 1:
-            target_ja[-1] = -0.01
-
-        filtered_new_pc = articulate_points(
-            filtered_pc, T_world_base, chain, current_ja=current_ja, target_ja=target_ja
-        )
-
-        part_flow = filtered_new_pc - filtered_pc
-        if close_open != None:
-            part_flow = -part_flow
-        flow[link_ixs] = part_flow
-
-    if linkname != "all":
-        for l in linkname:
-            _compute_flow(l)
-    else:
-        links = pm_raw_data.semantics.by_type("slider")
-        links += pm_raw_data.semantics.by_type("hinge")
-
-        for link in links:
-            _compute_flow(link.name)
-
-    return flow
+from flowbot3d.datasets.flow_dataset import compute_normalized_flow
+from open_anything_diffusion.datasets.flow_trajectory_dataset import (
+    compute_flow_trajectory
+)
 
 
 class PMSuctionSim:
@@ -384,7 +334,6 @@ class TrialResult:
     metric: float
 
 
-# TODO: change to the existing flow calculation method (No need to keep two functions)
 class GTFlowModel:
     def __init__(self, raw_data, env):
         self.env = env
@@ -395,29 +344,22 @@ class GTFlowModel:
         env = self.env
         raw_data = self.raw_data
 
-        flow = compute_flow(
-            P_world,
-            env.T_world_base,
-            pc_seg,
-            raw_data,
-            linkname="all",  # lys
-            linkname_to_id=env.link_name_to_index,
+        links = raw_data.semantics.by_type("slider")
+        links += raw_data.semantics.by_type("hinge")
+        current_jas = {}
+        for link in links:
+            linkname = link.name
+            chain = raw_data.obj.get_chain(linkname)
+            for joint in chain:
+                current_jas[joint.name] = 0
+        normalized_flow = compute_normalized_flow(
+            P_world, env.T_world_base, current_jas, pc_seg, env.link_name_to_index, raw_data, "all"
         )
-        nonzero_flow_xs = (flow != 0.0).any(axis=-1)
 
-        if nonzero_flow_xs.sum() > 0.0:
-            nonzero_flow = flow[(flow != 0.0).any(axis=-1)]
-            # print(f"there's zero flow for {env.obj_id_str}")
-            # raise ValueError(f"there's zero flow for {self.obj_id_str}")
-            largest = np.linalg.norm(nonzero_flow, axis=-1).max()
-
-            flow = flow / largest
-
-        return torch.from_numpy(flow)
+        return torch.from_numpy(normalized_flow)
 
 
 class GTTrajectoryModel:
-    # TODO: Generates trajectory
     def __init__(self, raw_data, env, traj_len=20):
         self.raw_data = raw_data
         self.env = env
@@ -428,30 +370,17 @@ class GTTrajectoryModel:
         env = self.env
         raw_data = self.raw_data
 
-        trajectory = np.zeros((P_world.shape[0], self.traj_len, 3))
-
-        for step in range(self.traj_len):
-            flow = compute_flow(
-                P_world,
-                env.T_world_base,
-                pc_seg,
-                raw_data,
-                linkname="all",
-                linkname_to_id=env.link_name_to_index,
-            )
-            nonzero_flow_xs = (flow != 0.0).any(axis=-1)
-
-            P_world += flow
-
-            if nonzero_flow_xs.sum() > 0.0:
-                nonzero_flow = flow[(flow != 0.0).any(axis=-1)]
-                # print(f"there's zero flow for {env.obj_id_str}")
-                # raise ValueError(f"there's zero flow for {self.obj_id_str}")
-                largest = np.linalg.norm(nonzero_flow, axis=-1).max()
-
-                flow = flow / largest
-
-            trajectory[:, step, :] = flow
+        links = raw_data.semantics.by_type("slider")
+        links += raw_data.semantics.by_type("hinge")
+        current_jas = {}
+        for link in links:
+            linkname = link.name
+            chain = raw_data.obj.get_chain(linkname)
+            for joint in chain:
+                current_jas[joint.name] = 0
+        trajectory, _ = compute_flow_trajectory(
+            self.traj_len, P_world, env.T_world_base, current_jas, pc_seg, env.link_name_to_index, raw_data, "all"
+        )
 
         return torch.from_numpy(trajectory)
 
@@ -543,9 +472,6 @@ def run_trial(
 
             pc_obs = env.render(filter_nonobj_pts=True, n_pts=1200)
 
-    # TODO: detect the initial angle, final angle, and upper bound, and metric.
-    # Ask Ben for details on this, it's from the UMPNet paper.
-    # Similar to "detect success"
     init_angle = 0.0
     final_angle = 0.0
     upper_bound = 0.0
