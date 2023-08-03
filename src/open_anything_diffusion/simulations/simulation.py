@@ -9,7 +9,8 @@ import torch
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowSimulationInferenceModule,
 )
-from open_anything_diffusion.simulations.pm_raw import PMRawData
+# from open_anything_diffusion.simulations.pm_raw import PMRawData
+from rpad.partnet_mobility_utils.data import PMObject
 from open_anything_diffusion.simulations.suction import (  # compute_flow,
     GTFlowModel,
     GTTrajectoryModel,
@@ -21,7 +22,7 @@ from open_anything_diffusion.simulations.suction import (  # compute_flow,
 def trial_flow(obj_id="41083", gui=False):
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     env = PMSuctionSim(obj_id, pm_dir, gui=gui)
-    raw_data = PMRawData(os.path.join(pm_dir, obj_id))
+    raw_data = PMObject(os.path.join(pm_dir, obj_id))
 
     available_joints = raw_data.semantics.by_type("hinge") + raw_data.semantics.by_type(
         "slider"
@@ -39,7 +40,7 @@ def trial_flow(obj_id="41083", gui=False):
 def trial_gt_trajectory(obj_id="41083", traj_len=10, gui=False):
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     env = PMSuctionSim(obj_id, pm_dir, gui=gui)
-    raw_data = PMRawData(os.path.join(pm_dir, obj_id))
+    raw_data = PMObject(os.path.join(pm_dir, obj_id))
 
     available_joints = raw_data.semantics.by_type("hinge") + raw_data.semantics.by_type(
         "slider"
@@ -57,7 +58,7 @@ def trial_gt_trajectory(obj_id="41083", traj_len=10, gui=False):
 def trial_with_prediction(obj_id="41083", traj_len=15, n_step=1, gui=False):
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     env = PMSuctionSim(obj_id, pm_dir, gui=gui)
-    raw_data = PMRawData(os.path.join(pm_dir, obj_id))
+    raw_data = PMObject(os.path.join(pm_dir, obj_id))
 
     available_joints = raw_data.semantics.by_type("hinge") + raw_data.semantics.by_type(
         "slider"
@@ -85,7 +86,7 @@ def trial_with_prediction(obj_id="41083", traj_len=15, n_step=1, gui=False):
     # length = 15
     # ckpt_file = "/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-19/14-51-22/checkpoints/epoch=94-step=74670-val_loss=0.00-weights-only.ckpt"
     # length = 1
-    ckpt_file = "/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt"
+    ckpt_file = "/home/yishu/open_anything_backup/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt"
     # Load the network weights.
     ckpt = torch.load(ckpt_file)
     network.load_state_dict(
@@ -100,7 +101,7 @@ def trial_with_prediction(obj_id="41083", traj_len=15, n_step=1, gui=False):
 
 if __name__ == "__main__":
     np.random.seed(42)
-    trial_flow(obj_id="41083", gui=True)
-    # trial_gt_trajectory(obj_id="35059", traj_len=15, gui=True)
-    # trial_with_prediction(obj_id="35059", traj_len=15, n_step=1, gui=True)
-    # trial_with_prediction(obj_id="35059", traj_len=1, n_step=15, gui=True)
+    # trial_flow(obj_id="168", gui=False)
+    # trial_gt_trajectory(obj_id="35059", traj_len=15, gui=False)
+    # trial_with_prediction(obj_id="35059", traj_len=15, n_step=1, gui=False)
+    trial_with_prediction(obj_id="35059", traj_len=1, n_step=15, gui=False)

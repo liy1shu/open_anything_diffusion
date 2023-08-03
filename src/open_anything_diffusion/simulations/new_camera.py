@@ -1,14 +1,17 @@
-from typing import Dict, Optional, Tuple
+
+
+from typing import Dict, Tuple, TypedDict
 
 import numpy as np
+import numpy.typing as npt
 import pybullet as p
 
-RENDER_WIDTH = 640
-RENDER_HEIGHT = 480
-CAMERA_INTRINSICS = np.array(
+DEFAULT_RENDER_WIDTH = 640
+DEFAULT_RENDER_HEIGHT = 480
+DEFAULT_CAMERA_INTRINSICS = np.array(
     [
-        [450, 0, RENDER_WIDTH / 2],
-        [0, 450, RENDER_HEIGHT / 2],
+        [450, 0, DEFAULT_RENDER_WIDTH / 2],
+        [0, 450, DEFAULT_RENDER_HEIGHT / 2],
         [0, 0, 1],
     ]
 )
@@ -23,7 +26,7 @@ T_CAMGL_2_CAM = np.array(
 )
 
 
-def get_pointcloud(depth, intrinsics):
+def get_pointcloud(depth, intrinsics) -> npt.NDArray[np.float32]:
     """Get 3D pointcloud from perspective depth image.
     Args:
       depth: HxW float array of perspective depth in meters.
@@ -37,19 +40,32 @@ def get_pointcloud(depth, intrinsics):
     px, py = np.meshgrid(xlin, ylin)
     px = (px - intrinsics[0, 2]) * (depth / intrinsics[0, 0])
     py = (py - intrinsics[1, 2]) * (depth / intrinsics[1, 1])
-    points = np.float32([px, py, depth]).transpose(1, 2, 0)
+    points: npt.NDArray[np.float32] = np.asarray(
+        [px, py, depth], dtype=np.float32
+    ).transpose(1, 2, 0)
     return points
+
+
+class Render(TypedDict, total=False):
+    rgb: npt.NDArray[np.uint8]
+    depth: npt.NDArray[np.float32]
+    seg: npt.NDArray[np.uint16]
+    P_cam: npt.NDArray[np.float32]
+    P_world: npt.NDArray[np.float32]
+    P_rgb: npt.NDArray[np.uint8]
+    pc_seg: npt.NDArray[np.uint16]
+    segmap: Dict[int, Tuple[int, int]]
 
 
 class Camera:
     def __init__(
         self,
         pos,
-        render_height=RENDER_HEIGHT,
-        render_width=RENDER_WIDTH,
+        render_height=DEFAULT_RENDER_HEIGHT,
+        render_width=DEFAULT_RENDER_WIDTH,
         znear=0.01,
         zfar=6,
-        intrinsics=CAMERA_INTRINSICS,
+        intrinsics=DEFAULT_CAMERA_INTRINSICS,
         target=None,
     ):
         #######################################
@@ -97,13 +113,21 @@ class Camera:
     def set_camera_position(self, pos):
         self.view_list = self.__view_list(pos, self.target)
 
-    def render(
-        self, client_id, return_prgb=False, has_plane=True, link_seg=True
-    ) -> Tuple[np.ndarray, ...]:
+    def render(self, client_id, remove_plane=True, link_seg=True) -> Render:
+        """Render the image from the camera.
+
+        Args:
+            client_id (_type_): The client id of the pybullet simulation.
+            remove_plane (bool, optional): Remove the plane (assumes that the seg index of the plane is 0). Defaults to True.
+            link_seg (bool, optional): Whether to return per-link segmentation, or per-object segmentation. See Pybullet docs. Defaults to True.
+
+        Returns:
+            Render: A full render of the scene.
+        """
         if link_seg:
             _, _, rgb, zbuffer, seg = p.getCameraImage(
-                RENDER_WIDTH,
-                RENDER_HEIGHT,
+                DEFAULT_RENDER_WIDTH,
+                DEFAULT_RENDER_HEIGHT,
                 self.view_list,
                 self.proj_list,
                 flags=p.ER_SEGMENTATION_MASK_OBJECT_AND_LINKINDEX,
@@ -111,8 +135,8 @@ class Camera:
             )
         else:
             _, _, rgb, zbuffer, seg = p.getCameraImage(
-                RENDER_WIDTH,
-                RENDER_HEIGHT,
+                DEFAULT_RENDER_WIDTH,
+                DEFAULT_RENDER_HEIGHT,
                 self.view_list,
                 self.proj_list,
                 physicsClientId=client_id,
@@ -120,16 +144,20 @@ class Camera:
 
         # Sometimes on mac things get weird.
         if isinstance(rgb, tuple):
-            rgb = np.asarray(rgb).reshape(RENDER_HEIGHT, RENDER_WIDTH, 4)
-            zbuffer = np.asarray(zbuffer).reshape(RENDER_HEIGHT, RENDER_WIDTH)
-            seg = np.asarray(seg).reshape(RENDER_HEIGHT, RENDER_WIDTH)
+            rgb = np.asarray(rgb).reshape(
+                DEFAULT_RENDER_HEIGHT, DEFAULT_RENDER_WIDTH, 4
+            )
+            zbuffer = np.asarray(zbuffer).reshape(
+                DEFAULT_RENDER_HEIGHT, DEFAULT_RENDER_WIDTH
+            )
+            seg = np.asarray(seg).reshape(DEFAULT_RENDER_HEIGHT, DEFAULT_RENDER_WIDTH)
 
         zfar, znear = self.zfar, self.znear
         depth = zfar + znear - (2.0 * zbuffer - 1.0) * (zfar - znear)
         depth = (2.0 * znear * zfar) / depth
 
         P_cam = get_pointcloud(depth, self.intrinsics)
-        foreground_ixs = seg > 0 if has_plane else seg > -1
+        foreground_ixs = seg > 0 if remove_plane else seg > -1
         pc_seg = seg[foreground_ixs].flatten()
         P_cam = P_cam[foreground_ixs]
         P_cam = P_cam.reshape(-1, 3)
@@ -140,17 +168,23 @@ class Camera:
         Ph_world = (self.T_world2cam @ Ph_cam.T).T
         P_world = Ph_world[:, :3]
 
+        output: Render = {
+            "rgb": np.asarray(rgb).astype(np.uint8),
+            "depth": np.asarray(depth).astype(np.float32),
+            "seg": np.asarray(seg),
+            "P_cam": np.asarray(P_cam).astype(np.float32),
+            "P_world": np.asarray(P_world).astype(np.float64),
+            "P_rgb": np.asarray(P_rgb).astype(np.uint8),
+            "pc_seg": np.asarray(pc_seg),
+        }
+
         # Undoing the bitmask so we can get the obj_id, link_index
-        segmap: Optional[Dict]
         if link_seg:
+            labels = [int(label) for label in np.unique(seg)]
             segmap = {
                 label: ((label & ((1 << 24) - 1)), (label >> 24) - 1)
-                for label in np.unique(seg)
+                for label in labels
             }
-        else:
-            segmap = None
+            output["segmap"] = segmap
 
-        if return_prgb:
-            return rgb, depth, seg, P_cam, P_world, P_rgb, pc_seg, segmap  # type: ignore
-
-        return rgb, depth, seg, P_cam, P_world, pc_seg, segmap  # type: ignore
+        return output
