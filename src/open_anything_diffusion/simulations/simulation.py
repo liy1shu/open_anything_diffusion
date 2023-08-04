@@ -5,11 +5,11 @@ import os
 import numpy as np
 import rpad.pyg.nets.pointnet2 as pnp
 import torch
+from rpad.partnet_mobility_utils.data import PMObject
 
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowSimulationInferenceModule,
 )
-from open_anything_diffusion.simulations.pm_raw import PMRawData
 from open_anything_diffusion.simulations.suction import (  # compute_flow,
     GTFlowModel,
     GTTrajectoryModel,
@@ -21,7 +21,7 @@ from open_anything_diffusion.simulations.suction import (  # compute_flow,
 def trial_flow(obj_id="41083", gui=False):
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     env = PMSuctionSim(obj_id, pm_dir, gui=gui)
-    raw_data = PMRawData(os.path.join(pm_dir, obj_id))
+    raw_data = PMObject(os.path.join(pm_dir, obj_id))
 
     available_joints = raw_data.semantics.by_type("hinge") + raw_data.semantics.by_type(
         "slider"
@@ -32,14 +32,14 @@ def trial_flow(obj_id="41083", gui=False):
 
     # t0 = time.perf_counter()
     print(f"opening {joint.name}, {joint.label}")
-    run_trial(env, raw_data, joint.name, model, n_steps=10)
+    return run_trial(env, raw_data, joint.name, model, n_steps=10)
 
 
 # Trial with groundtruth trajectories
 def trial_gt_trajectory(obj_id="41083", traj_len=10, gui=False):
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     env = PMSuctionSim(obj_id, pm_dir, gui=gui)
-    raw_data = PMRawData(os.path.join(pm_dir, obj_id))
+    raw_data = PMObject(os.path.join(pm_dir, obj_id))
 
     available_joints = raw_data.semantics.by_type("hinge") + raw_data.semantics.by_type(
         "slider"
@@ -69,7 +69,8 @@ def trial_with_prediction(
     obj_id="41083", network=None, n_step=1, gui=False, all_joint=False
 ):
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
-    raw_data = PMRawData(os.path.join(pm_dir, obj_id))
+    env = PMSuctionSim(obj_id, pm_dir, gui=gui)
+    raw_data = PMObject(os.path.join(pm_dir, obj_id))
 
     available_joints = raw_data.semantics.by_type("hinge") + raw_data.semantics.by_type(
         "slider"

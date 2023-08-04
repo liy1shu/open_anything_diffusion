@@ -6,8 +6,6 @@ import torch_geometric.loader as tgl
 from flowbot3d.datasets.flow_dataset_pyg import Flowbot3DPyGDataset
 from rpad.pyg.dataset import CachedByKeyDataset
 
-# from open_anything_diffusion.datasets.flow_dataset_pyg import Flowbot3DPyGDataset
-
 
 class FlowBotDataModule(L.LightningDataModule):
     def __init__(

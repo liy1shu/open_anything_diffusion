@@ -1,5 +1,5 @@
 import typing
-from typing import Any, Dict
+from typing import Dict
 
 import lightning as L
 import plotly.graph_objects as go
@@ -205,12 +205,14 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
         return {"artflownet_plot": fig}
 
 
-# TODO: Implement this for trajectory eval
-class FlowTrajectoryInferenceModule(L.LightningModule):
-    def __init__(self, network, inference_config) -> None:
+class FlowPredictorInferenceModule(L.LightningModule):
+    def __init__(self, network, inference_config=None) -> None:
         super().__init__()
         self.network = network
-        self.mask_input_channel = inference_config.mask_input_channel
+        if inference_config is None:
+            self.mask_input_channel = True  # default
+        else:
+            self.mask_input_channel = inference_config.mask_input_channel
 
     def forward(self, data) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
@@ -222,11 +224,7 @@ class FlowTrajectoryInferenceModule(L.LightningModule):
 
         return trajectory
 
-    def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:  # type: ignore
-        return self.forward(batch)
-
-    # the predict step input is different now, pay attention
-    def predict(self, xyz: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def predict_step(self, xyz: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """Predict the flow for a single object. The point cloud should
         come straight from the maniskill processed observation function.
 
@@ -242,8 +240,8 @@ class FlowTrajectoryInferenceModule(L.LightningModule):
         assert len(xyz.shape) == 2
         assert len(mask.shape) == 1
 
-        data = Data(pos=xyz, mask=mask)
-        batch = Batch.from_data_list([data])
+        data = tgd.Data(pos=xyz, mask=mask)
+        batch = tgd.Batch.from_data_list([data])
         batch = batch.to(self.device)
         self.eval()
         with torch.no_grad():
