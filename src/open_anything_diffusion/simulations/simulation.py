@@ -118,15 +118,18 @@ if __name__ == "__main__":
     # trial_with_prediction(obj_id="35059", traj_len=15, n_step=1, gui=True)
 
     # length = 15
-    network_15 = create_network(
-        traj_len=15,
-        ckpt_file="/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-19/14-51-22/checkpoints/epoch=94-step=74670-val_loss=0.00-weights-only.ckpt",
-    )
+    # network_15 = create_network(
+    #     traj_len=15,
+    #     ckpt_file="/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-19/14-51-22/checkpoints/epoch=94-step=74670-val_loss=0.00-weights-only.ckpt",
+    # )
     # length = 1
-    # network_1 = create_network(traj_len=15, ckpt_file="/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt")
+    network_1 = create_network(
+        traj_len=1,
+        ckpt_file="/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt",
+    )
     figs, trial_results = trial_with_prediction(
-        obj_id="35059", network=network_15, n_step=1, gui=True, all_joint=True
+        obj_id="35059", network=network_1, n_step=15, gui=False, all_joint=False
     )
     print(trial_results)
-    figs[list(figs.keys())[0]].show()
+    # figs[list(figs.keys())[0]].show()
     # trial_with_prediction(obj_id="35059", network=network_15, n_step=1, gui=False, all_joint=False)

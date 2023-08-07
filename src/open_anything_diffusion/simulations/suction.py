@@ -30,7 +30,7 @@ class PMSuctionSim:
             cameraDistance=1.2,
             cameraYaw=-90,
             cameraPitch=-30,
-            cameraTargetPosition=[-3, 0, 1.2],  # -3
+            cameraTargetPosition=[-3, 0, 1.2],
             physicsClientId=self.client_id,
         )
 
