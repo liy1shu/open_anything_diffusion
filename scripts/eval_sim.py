@@ -142,7 +142,7 @@ def main(cfg):
             continue
         print(f"OBJ {obj_id} of {obj_cat}")
         trial_figs, trial_results = trial_with_prediction(
-            obj_id=obj_id, network=network, n_step=30, gui=True, all_joint=True
+            obj_id=obj_id, network=network, n_step=30, gui=False, all_joint=True
         )
 
         # Wandb table

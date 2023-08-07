@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
-import plotly.graph_objects as go
 import pybullet as p
 import pybullet_data
 import torch
@@ -408,108 +407,6 @@ class GTTrajectoryModel:
         return torch.from_numpy(trajectory)
 
 
-def visualize_simulation(simulation_data):
-    fig = go.Figure(
-        data=[
-            go.Scatter3d(
-                x=simulation_data["x"][0],
-                y=simulation_data["y"][0],
-                z=simulation_data["z"][0],
-                mode="markers",
-                marker=dict(
-                    size=5,
-                    color=simulation_data["color"][0],
-                    colorscale="Viridis",
-                    colorbar=dict(title="Color"),
-                ),
-            )
-        ],
-        layout=go.Layout(
-            scene=dict(
-                xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")
-            ),
-            updatemenus=[
-                dict(
-                    type="buttons",
-                    showactive=False,
-                    buttons=[
-                        {
-                            "label": "Play",
-                            "method": "animate",
-                            "args": [
-                                None,
-                                {
-                                    "frame": {"duration": 9000, "redraw": True},
-                                    "fromcurrent": True,
-                                    "mode": "immediate",
-                                },
-                            ],
-                        },
-                        {
-                            "label": "Pause",
-                            "method": "animate",
-                            "args": [
-                                [None],
-                                {
-                                    "frame": {"duration": 0, "redraw": True},
-                                    "mode": "immediate",
-                                },
-                            ],
-                        },
-                    ],
-                )
-            ],
-            sliders=[
-                dict(
-                    steps=[
-                        dict(
-                            args=[
-                                [str(i)],
-                                {
-                                    "frame": {"duration": 0, "redraw": True},
-                                    "mode": "immediate",
-                                },
-                            ],
-                            label=str(i),
-                        )
-                        for i in range(len(simulation_data["x"]))
-                    ],
-                    currentvalue={
-                        "visible": True,
-                        "prefix": "Time Step: ",
-                        "xanchor": "right",
-                    },
-                    transition={"duration": 300, "easing": "cubic-in-out"},
-                    pad={"b": 10, "t": 50},
-                    len=0.9,
-                    x=0.1,
-                    y=0,
-                )
-            ],
-        ),
-        frames=[
-            go.Frame(
-                data=go.Scatter3d(
-                    x=simulation_data["x"][i],
-                    y=simulation_data["y"][i],
-                    z=simulation_data["z"][i],
-                    mode="markers",
-                    marker=dict(
-                        size=5,
-                        color=simulation_data["color"][i],
-                        colorscale="Viridis",
-                        colorbar=dict(title="Color"),
-                    ),
-                ),
-                name=str(i),
-            )
-            for i in range(len(simulation_data["x"]))
-        ],
-    )
-
-    return fig
-
-
 def get_points(env: PMSuctionSim):
     visual_shapes = p.getVisualShapeData(
         env.client_id
@@ -705,7 +602,6 @@ def run_trial(
     p.stopStateLogging(log_id)
     p.disconnect(physicsClientId=env.client_id)
     return animation.animate(), TrialResult(  # Save the flow visuals
-        # return visualize_simulation(simulation_frames), TrialResult(
         success=success,
         contact=True,
         init_angle=init_angle,

@@ -125,7 +125,7 @@ if __name__ == "__main__":
     # length = 1
     # network_1 = create_network(traj_len=15, ckpt_file="/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt")
     figs, trial_results = trial_with_prediction(
-        obj_id="103639", network=network_15, n_step=1, gui=True, all_joint=True
+        obj_id="35059", network=network_15, n_step=1, gui=True, all_joint=True
     )
     print(trial_results)
     figs[list(figs.keys())[0]].show()
