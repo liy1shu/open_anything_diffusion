@@ -407,38 +407,6 @@ class GTTrajectoryModel:
         return torch.from_numpy(trajectory)
 
 
-def get_points(env: PMSuctionSim):
-    visual_shapes = p.getVisualShapeData(
-        env.client_id
-    )  # Modify the robot_id if you want to get data for other objects
-    print(len(visual_shapes))
-
-    # Extract positions and colors of points from the visual shape data
-    xs, ys, zs = [], [], []
-    colors = []
-    for shape in visual_shapes:
-        print(shape[2], p.GEOM_SPHERE)
-        # if shape[2] == p.GEOM_SPHERE:  # Check if the shape is a sphere (assuming points are represented as spheres)
-        # x, y, z = shape[5]  # Extract the position of the sphere center (x, y, z)
-        # color = shape[7][:3]  # Extract the color of the sphere (r, g, b) - Ignore alpha (4th element)
-        # xs.append(x)
-        # ys.append(y)
-        # zs.append(z)
-        # colors.append(color)
-        x, y, z = shape[5]  # Extract the position of the sphere center (x, y, z)
-        color = shape[7][
-            :3
-        ]  # Extract the color of the sphere (r, g, b) - Ignore alpha (4th element)
-        xs.append(x)
-        ys.append(y)
-        zs.append(z)
-        colors.append(color)
-
-    print(xs, ys, zs, colors)
-    print(len(xs))
-    return xs, ys, zs, colors
-
-
 def run_trial(
     env: PMSuctionSim,
     raw_data: PMObject,
