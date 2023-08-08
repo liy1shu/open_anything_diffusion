@@ -66,10 +66,10 @@ def create_network(traj_len=15, ckpt_file=None):
 
 # Trial with model predicted trajectories
 def trial_with_prediction(
-    obj_id="41083", network=None, n_step=1, gui=False, all_joint=False
+    obj_id="41083", network=None, n_step=1, gui=False, all_joint=False, website=False
 ):
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
-    env = PMSuctionSim(obj_id, pm_dir, gui=gui)
+    # env = PMSuctionSim(obj_id, pm_dir, gui=gui)
     raw_data = PMObject(os.path.join(pm_dir, obj_id))
 
     available_joints = raw_data.semantics.by_type("hinge") + raw_data.semantics.by_type(
@@ -98,12 +98,15 @@ def trial_with_prediction(
             model,
             n_steps=n_step,
             save_name=f"{obj_id}_{joint.name}",
+            website=website,
         )
-        if fig is None:
+        if result.assertion is False:
             with open(
                 "/home/yishu/open_anything_diffusion/logs/assertion_failure.txt", "a"
             ) as f:
                 f.write(f"Object: {obj_id}; Joint: {joint.name}\n")
+            continue
+        if result.contact is False:
             continue
         figs[joint.name] = fig
         results.append(result)

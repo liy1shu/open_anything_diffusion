@@ -335,6 +335,7 @@ class PMSuctionSim:
 class TrialResult:
     success: bool
     contact: bool
+    assertion: bool
     init_angle: float
     final_angle: float
     now_angle: float
@@ -415,10 +416,11 @@ def run_trial(
     n_steps: int = 30,
     n_pts: int = 1200,
     save_name: str = "unknown",
+    website: bool = False,
 ) -> TrialResult:
-    # Flow animation
-    animation = FlowNetAnimation()
-    # simulation_frames = {"x":[], "y":[], "z":[], "color":[]}
+    if website:
+        # Flow animation
+        animation = FlowNetAnimation()
 
     # First, reset the environment.
     env.reset()
@@ -455,6 +457,7 @@ def run_trial(
         p.disconnect(physicsClientId=env.client_id)
         return None, TrialResult(
             success=False,
+            assertion=False,
             contact=False,
             init_angle=0,
             final_angle=0,
@@ -462,33 +465,39 @@ def run_trial(
             metric=0,
         )
 
-    # Record simulation video
-    log_id = p.startStateLogging(
-        p.STATE_LOGGING_VIDEO_MP4,
-        f"./logs/simu_eval/video_assets/{save_name}.mp4",
-    )
+    if website:
+        # Record simulation video
+        log_id = p.startStateLogging(
+            p.STATE_LOGGING_VIDEO_MP4,
+            f"./logs/simu_eval/video_assets/{save_name}.mp4",
+        )
 
     # The attachment point is the point with the highest flow.
     best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
     best_flow = pred_flow[link_ixs][best_flow_ix]
     best_point = P_world[link_ixs][best_flow_ix]
+    # breakpoint()
 
     # Teleport to an approach pose, approach, the object and grasp.
     contact = env.teleport_and_approach(best_point, best_flow)
 
     if not contact:
-        segmented_flow = np.zeros_like(pred_flow)
-        segmented_flow[link_ixs] = pred_flow[link_ixs]
-        animation.add_trace(
-            torch.as_tensor(P_world),
-            torch.as_tensor([P_world]),
-            torch.as_tensor([segmented_flow]),
-            "red",
-        )
-        p.stopStateLogging(log_id)
+        if website:
+            segmented_flow = np.zeros_like(pred_flow)
+            segmented_flow[link_ixs] = pred_flow[link_ixs]
+            animation.add_trace(
+                torch.as_tensor(P_world),
+                torch.as_tensor([P_world]),
+                torch.as_tensor([segmented_flow]),
+                "red",
+            )
+            p.stopStateLogging(log_id)
+
         p.disconnect(physicsClientId=env.client_id)
-        return animation.animate(), TrialResult(
+        animation_results = None if not website else animation.animate()
+        return animation_results, TrialResult(
             success=False,
+            assertion=True,
             contact=False,
             init_angle=0,
             final_angle=0,
@@ -501,7 +510,9 @@ def run_trial(
     pc_obs = env.render(filter_nonobj_pts=True, n_pts=n_pts)
     success = False
 
-    for i in range(n_steps):
+    global_step = 0
+    # for i in range(n_steps):
+    while global_step < n_steps:
         # Predict the flow on the observation.
         pred_trajectory = model(pc_obs)
         pred_trajectory = pred_trajectory.reshape(
@@ -509,6 +520,9 @@ def run_trial(
         )
 
         for traj_step in range(pred_trajectory.shape[1]):
+            if global_step == n_steps:
+                break
+            global_step += 1
             pred_flow = pred_trajectory[:, traj_step, :]
             rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
 
@@ -523,9 +537,12 @@ def run_trial(
             link_ixs = pc_seg == env.link_name_to_index[target_link]
             # assert link_ixs.any()
             if not link_ixs.any():
-                p.stopStateLogging(log_id)
+                if website:
+                    p.stopStateLogging(log_id)
+
                 p.disconnect(physicsClientId=env.client_id)
                 return None, TrialResult(
+                    assertion=False,
                     success=False,
                     contact=False,
                     init_angle=0,
@@ -534,15 +551,16 @@ def run_trial(
                     metric=0,
                 )
 
-            # Add pcd to flow animation
-            segmented_flow = np.zeros_like(pred_flow)
-            segmented_flow[link_ixs] = pred_flow[link_ixs]
-            animation.add_trace(
-                torch.as_tensor(P_world),
-                torch.as_tensor([P_world]),
-                torch.as_tensor([segmented_flow]),
-                "red",
-            )
+            if website:
+                # Add pcd to flow animation
+                segmented_flow = np.zeros_like(pred_flow)
+                segmented_flow[link_ixs] = pred_flow[link_ixs]
+                animation.add_trace(
+                    torch.as_tensor(P_world),
+                    torch.as_tensor([P_world]),
+                    torch.as_tensor([segmented_flow]),
+                    "red",
+                )
 
             # Get the best direction.
             best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
@@ -567,11 +585,15 @@ def run_trial(
     metric = (curr_pos - init_angle) / (target_angle - init_angle)
     metric = min(metric, 1)
 
-    p.stopStateLogging(log_id)
+    if website:
+        p.stopStateLogging(log_id)
+
     p.disconnect(physicsClientId=env.client_id)
-    return animation.animate(), TrialResult(  # Save the flow visuals
+    animation_results = None if not website else animation.animate()
+    return animation_results, TrialResult(  # Save the flow visuals
         success=success,
         contact=True,
+        assertion=True,
         init_angle=init_angle,
         final_angle=target_angle,
         now_angle=curr_pos,
