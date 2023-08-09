@@ -29,8 +29,8 @@ checkpoint:
   # If we want to load a model for a specific run, we can change that here.
   # run_id: ???
   # run_id: nxe7uxh4  # flowbot
-  run_id: ah26pym3  # traj 1
-  # run_id: l5stf32k  # traj 5
+  # run_id: ah26pym3  # traj 1
+  run_id: l5stf32k  # traj 5
   # run_id: m2twtvm7   # traj 10
   # run_id: yiel0na4   # traj 15
   # run_id: zmnrssob  # traj 20
@@ -49,6 +49,6 @@ wandb:
   # group: flowbot  # flowbot
   # group: traj1  # traj 1 experiment-sb009k1f
   # group: traj5  # traj 5 experiment-y2kdp0hq
-  group: traj1
+  group: traj5
 
 metric_output_dir: './logs'
