@@ -454,6 +454,7 @@ def run_trial(
     link_ixs = pc_seg == env.link_name_to_index[target_link]
     # assert link_ixs.any()
     if not link_ixs.any():
+        print("NO!!!")
         p.disconnect(physicsClientId=env.client_id)
         return None, TrialResult(
             success=False,
@@ -482,6 +483,7 @@ def run_trial(
     contact = env.teleport_and_approach(best_point, best_flow)
 
     if not contact:
+        print("NO contact!!!")
         if website:
             segmented_flow = np.zeros_like(pred_flow)
             segmented_flow[link_ixs] = pred_flow[link_ixs]
@@ -537,6 +539,7 @@ def run_trial(
             link_ixs = pc_seg == env.link_name_to_index[target_link]
             # assert link_ixs.any()
             if not link_ixs.any():
+                print("NO link ixs!!!")
                 if website:
                     p.stopStateLogging(log_id)
 

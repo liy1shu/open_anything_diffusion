@@ -9,14 +9,13 @@ import lightning as L
 import numpy as np
 import omegaconf
 import pandas as pd
-import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import tqdm
 import wandb
 from rpad.visualize_3d import html
 
 from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
-from open_anything_diffusion.simulations.simulation import trial_with_prediction
+from open_anything_diffusion.simulations.simulation import trial_flow
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
 
 
@@ -44,7 +43,7 @@ id_to_cat = load_obj_id_to_category()
 object_to_link = load_obj_and_link()
 
 
-@hydra.main(config_path="../configs", config_name="eval_sim", version_base="1.3")
+@hydra.main(config_path="../configs", config_name="eval_sim_gt", version_base="1.3")
 def main(cfg):
     ######################################################################
     # Torch settings.
@@ -77,6 +76,13 @@ def main(cfg):
     # This is a different job type (eval), but we want it all grouped
     # together. Notice that we use our own logging here (not lightning).
     ######################################################################
+    id = wandb.util.generate_id()
+    group = "experiment-" + id
+    # if cfg.wandb.group is None:
+    #     id = wandb.util.generate_id()
+    #     group = "experiment-" + id
+    # else:
+    #     group = cfg.wandb.group
 
     # Create a run.
     run = wandb.init(
@@ -88,7 +94,7 @@ def main(cfg):
         ),
         job_type=cfg.job_type,
         save_code=True,  # This just has the main script.
-        group=cfg.wandb.group,
+        group=group,
     )
 
     # Log the code.
@@ -107,30 +113,6 @@ def main(cfg):
     #
     # We'll also load the weights.
     ######################################################################
-
-    mask_channel = 1 if cfg.inference.mask_input_channel else 0
-    network = pnp.PN2Dense(
-        in_channels=mask_channel,
-        out_channels=3 * cfg.inference.trajectory_len,
-        p=pnp.PN2DenseParams(),
-    )
-
-    # Get the checkpoint file. If it's a wandb reference, download.
-    # Otherwise look to disk.
-    checkpoint_reference = cfg.checkpoint.reference
-    if checkpoint_reference.startswith(cfg.wandb.entity):
-        # download checkpoint locally (if not already cached)
-        artifact_dir = cfg.wandb.artifact_dir
-        artifact = run.use_artifact(checkpoint_reference, type="model")
-        ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
-    else:
-        ckpt_file = checkpoint_reference
-
-    # Load the network weights.
-    ckpt = torch.load(ckpt_file)
-    network.load_state_dict(
-        {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items()}
-    )
 
     # Simulation and results.
     print("Simulating")
@@ -153,13 +135,12 @@ def main(cfg):
         if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
             continue
         print(f"OBJ {obj_id} of {obj_cat}")
-        trial_figs, trial_results = trial_with_prediction(
+        trial_figs, trial_results = trial_flow(
             obj_id=obj_id,
-            network=network,
-            n_step=30,
-            gui=cfg.gui,
+            n_steps=30,
             all_joint=True,
             available_joints=available_links,
+            gui=cfg.gui,
             website=cfg.website,
         )
 
