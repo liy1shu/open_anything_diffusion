@@ -254,14 +254,15 @@ class FlowSimulationInferenceModule(L.LightningModule):
         super().__init__()
         self.network = network
 
-    def forward(self, data) -> torch.Tensor:  # type: ignore
+    def forward(self, data, mask=None) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
         rgb, depth, seg, P_cam, P_world, pc_seg, segmap = data
 
-        data = tgd.Data(
-            pos=torch.from_numpy(P_world).float(),
-            mask=torch.ones(P_world.shape[0]).float(),
-        )
+        if mask is None:
+            mask = torch.ones(P_world.shape[0]).float()
+        else:
+            mask = torch.from_numpy(mask).float()
+        data = tgd.Data(pos=torch.from_numpy(P_world).float(), mask=mask)
         batch = tgd.Batch.from_data_list([data])
         batch = batch.to(self.device)
         batch.x = batch.mask.reshape(len(batch.mask), 1)
