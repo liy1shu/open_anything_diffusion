@@ -439,6 +439,7 @@ def run_trial(
     pc_obs = env.render(filter_nonobj_pts=True, n_pts=n_pts)
     rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
 
+    # breakpoint()
     pred_trajectory = model(copy.deepcopy(pc_obs))
     pred_trajectory = pred_trajectory.reshape(
         pred_trajectory.shape[0], -1, pred_trajectory.shape[-1]
@@ -451,10 +452,10 @@ def run_trial(
     # breakpoint()
 
     # Filter down just the points on the target link.
+
     link_ixs = pc_seg == env.link_name_to_index[target_link]
     # assert link_ixs.any()
     if not link_ixs.any():
-        print("NO!!!")
         p.disconnect(physicsClientId=env.client_id)
         return None, TrialResult(
             success=False,
@@ -483,7 +484,6 @@ def run_trial(
     contact = env.teleport_and_approach(best_point, best_flow)
 
     if not contact:
-        print("NO contact!!!")
         if website:
             segmented_flow = np.zeros_like(pred_flow)
             segmented_flow[link_ixs] = pred_flow[link_ixs]
@@ -494,7 +494,7 @@ def run_trial(
                 "red",
             )
             p.stopStateLogging(log_id)
-
+        print("No contact!")
         p.disconnect(physicsClientId=env.client_id)
         animation_results = None if not website else animation.animate()
         return animation_results, TrialResult(
@@ -528,18 +528,11 @@ def run_trial(
             pred_flow = pred_trajectory[:, traj_step, :]
             rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
 
-            # # TODO: simulation environment data
-            # simu_points_x, simu_points_y, simu_points_z, simu_colors = get_points(env)
-            # simulation_frames["x"].append(simu_points_x)
-            # simulation_frames["y"].append(simu_points_y)
-            # simulation_frames["z"].append(simu_points_z)
-            # simulation_frames["color"].append(simu_colors)
-
             # Filter down just the points on the target link.
+            # breakpoint()
             link_ixs = pc_seg == env.link_name_to_index[target_link]
             # assert link_ixs.any()
             if not link_ixs.any():
-                print("NO link ixs!!!")
                 if website:
                     p.stopStateLogging(log_id)
 

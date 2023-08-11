@@ -162,7 +162,7 @@ def trial_with_prediction(
 
 if __name__ == "__main__":
     np.random.seed(42)
-    trial_flow(obj_id="41083", available_joints=["link_0"], gui=False, website=False)
+    # trial_flow(obj_id="41083", available_joints=["link_0"], gui=True, website=False)
     # trial_gt_trajectory(obj_id="35059", traj_len=15, gui=True)
     # trial_with_prediction(obj_id="35059", traj_len=15, n_step=1, gui=True)
 
@@ -171,16 +171,24 @@ if __name__ == "__main__":
     #     traj_len=15,
     #     ckpt_file="/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-19/14-51-22/checkpoints/epoch=94-step=74670-val_loss=0.00-weights-only.ckpt",
     # )
+    obj_id = 1
+    pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
+    # env = PMSuctionSim(obj_id, pm_dir, gui=gui)
+    raw_data = PMObject(os.path.join(pm_dir, "35059"))
+    available_joints = raw_data.semantics.by_type("hinge") + raw_data.semantics.by_type(
+        "slider"
+    )
+    print(available_joints)
 
-    # length = 1
-    # network_1 = create_network(
-    #     traj_len=1,
-    #     ckpt_file="/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt",
-    # )
-    # figs, trial_results = trial_with_prediction(
-    #     obj_id="35059", network=network_1, n_step=15, gui=False, all_joint=False
-    # )
-    # print(trial_results)
+    length = 1
+    network_1 = create_network(
+        traj_len=1,
+        ckpt_file="/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt",
+    )
+    figs, trial_results = trial_with_prediction(
+        obj_id="35059", network=network_1, n_step=15, gui=False, all_joint=False
+    )
+    print(trial_results)
 
     # figs[list(figs.keys())[0]].show()
     # trial_with_prediction(obj_id="35059", network=network_15, n_step=1, gui=False, all_joint=False)
