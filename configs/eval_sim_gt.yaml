@@ -45,7 +45,7 @@ resources:
 wandb:
   # The group ***should*** be the same as the training group (so it can be bundled)
   # nicely in the UI. But you might have a one-off eval or something.
-  group: Null
+  group: groundtruth
   # group: flowbot  # flowbot
   # group: traj1  # traj 1 experiment-sb009k1f
   # group: traj5  # traj 5 experiment-y2kdp0hq

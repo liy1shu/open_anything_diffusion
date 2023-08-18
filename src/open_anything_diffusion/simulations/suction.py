@@ -282,10 +282,14 @@ class PMSuctionSim:
         lower, upper = info[8], info[9]
         curr_pos = self.get_joint_value(target_link)
 
-        print(f"lower: {lower}, upper: {upper}, curr: {curr_pos}")
-
         sign = -1 if upper < 0 else 1
-        return sign * (upper - curr_pos) < 0.001
+        is_success = abs((upper - curr_pos) / (upper - lower)) < 0.1
+        print(
+            f"lower: {lower}, upper: {upper}, curr: {curr_pos}, metric:{abs((upper - curr_pos) / (upper - lower))}, is_success:{is_success}"
+        )
+
+        # return sign * (upper - curr_pos) < 0.001
+        return is_success  # 90%
 
     def randomize_joints(self):
         for i in range(p.getNumJoints(self.obj_id, self.client_id)):
@@ -374,6 +378,11 @@ class GTFlowModel:
 
         return torch.from_numpy(normalized_flow)
 
+    def get_movable_mask(self, obs) -> torch.Tensor:
+        flow = self(obs)
+        mask = (~(np.isclose(flow, 0.0)).all(axis=-1)).astype(np.bool_)
+        return mask
+
 
 class GTTrajectoryModel:
     def __init__(self, raw_data, env, traj_len=20):
@@ -413,6 +422,7 @@ def run_trial(
     raw_data: PMObject,
     target_link: str,
     model,
+    gt_model=None,  # When we use mask_input_channel=True, this is the mask generator
     n_steps: int = 30,
     n_pts: int = 1200,
     save_name: str = "unknown",
@@ -440,7 +450,12 @@ def run_trial(
     rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
 
     # breakpoint()
-    pred_trajectory = model(copy.deepcopy(pc_obs))
+    if gt_model is None:  # GT Flow model
+        pred_trajectory = model(copy.deepcopy(pc_obs))
+    else:
+        movable_mask = gt_model.get_movable_mask(pc_obs)
+        pred_trajectory = model(copy.deepcopy(pc_obs), movable_mask)
+    # pred_trajectory = model(copy.deepcopy(pc_obs))
     pred_trajectory = pred_trajectory.reshape(
         pred_trajectory.shape[0], -1, pred_trajectory.shape[-1]
     )
@@ -516,7 +531,13 @@ def run_trial(
     # for i in range(n_steps):
     while global_step < n_steps:
         # Predict the flow on the observation.
-        pred_trajectory = model(pc_obs)
+        if gt_model is None:  # GT Flow model
+            pred_trajectory = model(copy.deepcopy(pc_obs))
+        else:
+            movable_mask = gt_model.get_movable_mask(pc_obs)
+            # breakpoint()
+            pred_trajectory = model(pc_obs, movable_mask)
+            # pred_trajectory = model(pc_obs)
         pred_trajectory = pred_trajectory.reshape(
             pred_trajectory.shape[0], -1, pred_trajectory.shape[-1]
         )
@@ -535,7 +556,6 @@ def run_trial(
             if not link_ixs.any():
                 if website:
                     p.stopStateLogging(log_id)
-
                 p.disconnect(physicsClientId=env.client_id)
                 return None, TrialResult(
                     assertion=False,
@@ -571,6 +591,9 @@ def run_trial(
                 break
 
             pc_obs = env.render(filter_nonobj_pts=True, n_pts=1200)
+
+        if success:
+            break
 
     # calculate the metrics
     info = p.getJointInfo(
