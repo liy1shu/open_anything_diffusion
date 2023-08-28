@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import torch_geometric.data as tgd
 from diffusers.configuration_utils import ConfigMixin, register_to_config
@@ -7,8 +8,7 @@ from diffusers.models.embeddings import TimestepEmbedding, Timesteps
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.utils import BaseOutput
 
-# import rpad.pyg.nets.pointnet2 as pnp
-import open_anything_diffusion.models.diffusion.module as pnp
+# import open_anything_diffusion.models.diffusion.module as pnp
 
 # from .util import quat2mat
 

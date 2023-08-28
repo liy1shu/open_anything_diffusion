@@ -290,8 +290,8 @@ if __name__ == "__main__":
     diffuser = TrajDiffuser(config)
 
     wandb.init(
-        # entity="r-pad",
-        entity="leisure-thu-cv",
+        entity="r-pad",
+        # entity="leisure-thu-cv",
         project="open_anything_diffusion",
         group="diffusion-PN++",
         job_type="train",
