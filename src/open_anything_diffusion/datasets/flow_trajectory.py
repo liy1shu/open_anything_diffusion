@@ -109,15 +109,27 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
 
     def train_val_dataloader(self):
         return tgl.DataLoader(
-            self.train_val_dset, self.batch_size, shuffle=False, num_workers=0
+            self.train_val_dset,
+            self.batch_size,
+            shuffle=False,
+            num_workers=0
+            # self.train_val_dset, 1, shuffle=False, num_workers=0
         )
 
     def val_dataloader(self):
         return tgl.DataLoader(
-            self.val_dset, self.batch_size, shuffle=False, num_workers=0
+            self.val_dset,
+            self.batch_size,
+            shuffle=False,
+            num_workers=0
+            # self.val_dset, 1, shuffle=False, num_workers=0
         )
 
     def unseen_dataloader(self):
         return tgl.DataLoader(
-            self.unseen_dset, self.batch_size, shuffle=False, num_workers=0
+            self.unseen_dset,
+            self.batch_size,
+            shuffle=False,
+            num_workers=0
+            # self.unseen_dset, self.batch_size, shuffle=False, num_workers=0
         )
