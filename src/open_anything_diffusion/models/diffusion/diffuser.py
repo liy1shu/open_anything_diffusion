@@ -114,7 +114,7 @@ class TrajDiffuser:
         #     self.device
         # )
         # condition = torch.tensor(sample.pos.unsqueeze(0)).to(self.device)
-
+        self.model.train()
         for epoch in range(config.num_epochs):
             print(f"Epoch: {epoch}")
             for step, batch in tqdm.tqdm(enumerate(train_dataloader)):
@@ -123,7 +123,7 @@ class TrajDiffuser:
                     # Validation Metric
                     mdist = 0
                     msim = 0
-                    repeat_time = 5
+                    repeat_time = 1
                     for i in range(repeat_time):
                         metric = self.predict(val_dataloader, vis=False)
                         mdist += metric["mean_dist"]
@@ -203,6 +203,7 @@ class TrajDiffuser:
         plt.plot(losses[::50])
 
     def predict(self, val_dataloader, vis=False):
+        self.model.eval()
         with torch.no_grad():
             for id, sample in tqdm.tqdm(enumerate(val_dataloader)):
                 # breakpoint()
@@ -265,9 +266,13 @@ class TrajDiffuser:
                             )
 
                 flow_prediction = noisy_input.transpose(1, 3)
-                flow_prediction = torch.nn.functional.normalize(
-                    flow_prediction, p=2, dim=-1
-                )
+                # flow_prediction = torch.nn.functional.normalize(
+                #     flow_prediction, p=2, dim=-1
+                # )
+                largest_mag: float = torch.linalg.norm(
+                    flow_prediction, ord=2, dim=-1
+                ).max()
+                flow_prediction = flow_prediction / (largest_mag + 1e-6)
                 # flow_prediction = flow_prediction.permute(1, 2, 0)
                 masked_flow_prediction = flow_prediction[mask == 1]
 
@@ -290,26 +295,16 @@ if __name__ == "__main__":
     diffuser = TrajDiffuser(config)
 
     wandb.init(
-        entity="r-pad",
-        # entity="leisure-thu-cv",
+        # entity="r-pad",
+        entity="leisure-thu-cv",
         project="open_anything_diffusion",
         group="diffusion-PN++",
         job_type="train",
     )
 
-    # datamodule = FlowTrajectoryDataModule(
-    #     root="/home/yishu/datasets/partnet-mobility",
-    #     batch_size=16,
-    #     num_workers=30,
-    #     n_proc=2,
-    #     seed=42,
-    #     trajectory_len=config.traj_len,  # Only used when training trajectory model
-    # )
-
-    # Overfit
     datamodule = FlowTrajectoryDataModule(
         root="/home/yishu/datasets/partnet-mobility",
-        batch_size=1,
+        batch_size=16,
         num_workers=30,
         n_proc=2,
         seed=42,
@@ -319,14 +314,27 @@ if __name__ == "__main__":
     train_dataloader = datamodule.train_dataloader()
     val_dataloader = datamodule.train_val_dataloader()
 
-    # # Overfit
-    samples = list(enumerate(train_dataloader))
-    # breakpoint()
-    sample = samples[0][1]
-    diffuser.train([sample], [sample])
+    # Train
+    diffuser.train(train_dataloader, val_dataloader)
 
-    # # Train
-    # diffuser.train(train_dataloader, val_dataloader)
+    # # Overfit
+    # datamodule = FlowTrajectoryDataModule(
+    #     root="/home/yishu/datasets/partnet-mobility",
+    #     batch_size=1,
+    #     num_workers=30,
+    #     n_proc=2,
+    #     seed=42,
+    #     trajectory_len=config.traj_len,  # Only used when training trajectory model
+    # )
+
+    # train_dataloader = datamodule.train_dataloader()
+    # val_dataloader = datamodule.train_val_dataloader()
+
+    # # # Overfit
+    # samples = list(enumerate(train_dataloader))
+    # # breakpoint()
+    # sample = samples[0][1]
+    # diffuser.train([sample], [sample])
 
     wandb.finish()
 

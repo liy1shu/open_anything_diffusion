@@ -12,6 +12,9 @@ from lightning.pytorch.loggers import WandbLogger
 from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
 from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
 from open_anything_diffusion.models.flow_predictor import FlowPredictorTrainingModule
+from open_anything_diffusion.models.flow_trajectory_diffuser import (
+    FlowTrajectoryDiffusionModule,
+)
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowTrajectoryTrainingModule,
 )
@@ -26,8 +29,9 @@ data_module_class = {
     "trajectory": FlowTrajectoryDataModule,
 }
 training_module_class = {
-    "flowbot": FlowPredictorTrainingModule,
-    "trajectory": FlowTrajectoryTrainingModule,
+    "flowbot_artflownet": FlowPredictorTrainingModule,
+    "trajectory_artflownet": FlowTrajectoryTrainingModule,
+    "trajectory_diffuser": FlowTrajectoryDiffusionModule,
 }
 
 
@@ -111,7 +115,7 @@ def main(cfg):
     # and the logging.
     ######################################################################
 
-    model = training_module_class[cfg.dataset.name](network, training_cfg=cfg.training)
+    model = training_module_class[cfg.training.name](network, training_cfg=cfg.training)
 
     ######################################################################
     # Set up logging in WandB.

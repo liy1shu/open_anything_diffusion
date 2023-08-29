@@ -72,7 +72,9 @@ class PNDiffuser(ModelMixin, ConfigMixin):
         # time embedding
         timesteps = timestep
         if not torch.is_tensor(timesteps):
-            timesteps = torch.tensor([timesteps], dtype=torch.long, device=x.device)
+            timesteps = torch.tensor(
+                [timesteps], dtype=torch.long, device=noisy_input.device
+            )
         elif torch.is_tensor(timesteps) and len(timesteps.shape) == 0:
             timesteps = timesteps[None].to(noisy_input.device)
 
@@ -99,7 +101,8 @@ class PNDiffuser(ModelMixin, ConfigMixin):
         context = context.to(noisy_input.device)
         context.x = torch.cat(
             (torch.flatten(noisy_input, start_dim=1, end_dim=2), t_emb), dim=1
-        )  # (B, d+64+64, N)
+        )  # (B, 3 + 64 , N)
+        # breakpoint()
         context.x = torch.flatten(context.x.permute(0, 2, 1), start_dim=0, end_dim=1)
 
         x = self.predictor(context)
