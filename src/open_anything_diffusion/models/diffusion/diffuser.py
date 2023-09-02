@@ -13,6 +13,11 @@ from diffusers.optimization import get_cosine_schedule_with_warmup
 from flowbot3d.grasping.agents.flowbot3d import FlowNetAnimation
 
 from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
+from open_anything_diffusion.metrics.trajectory import (
+    artflownet_loss,
+    flow_metrics,
+    normalize_trajectory,
+)
 from open_anything_diffusion.models.diffusion.model import PNDiffuser
 
 # import open_anything_diffusion.models.diffusion.module as pnp
@@ -36,7 +41,7 @@ class TrainingConfig:
     # output_dir = "ddpm-butterflies-128"  # the model name locally and on the HF Hub
     train_sample_number = 1
 
-    traj_len = 1
+    traj_len = 5
     # Diffuser params
     num_train_timesteps = 100
     seed = 0
@@ -97,7 +102,8 @@ class TrajDiffuser:
             optimizer=self.optimizer,
             num_warmup_steps=config.lr_warmup_steps,
             # num_training_steps=(len(train_dataloader) * config.num_epochs),
-            num_training_steps=(config.train_sample_number * config.num_epochs),
+            # num_training_steps=((config.train_sample_number // config.batch_size) * config.num_epochs),
+            num_training_steps=(config.num_epochs),
         )
 
     def load_model(self, ckpt_path="./diffusion_best_ckpt.pth"):
@@ -121,15 +127,21 @@ class TrajDiffuser:
                 # Wandb
                 if global_step % 200 == 0:
                     # Validation Metric
-                    mdist = 0
-                    msim = 0
+                    mrmse = 0
+                    mcos = 0
+                    mmag = 0
+                    mflow = 0
                     repeat_time = 1
                     for i in range(repeat_time):
                         metric = self.predict(val_dataloader, vis=False)
-                        mdist += metric["mean_dist"]
-                        msim += metric["cos_sim"]
-                    wandb.log({"dist": mdist / repeat_time}, step=global_step)
-                    wandb.log({"cos": msim / repeat_time}, step=global_step)
+                        mrmse += metric["rmse"]
+                        mcos += metric["cos_dist"]
+                        mmag += metric["mag_error"]
+                        mflow += metric["flow_loss"]
+                    wandb.log({"rmse": mrmse / repeat_time}, step=global_step)
+                    wandb.log({"cos": mcos / repeat_time}, step=global_step)
+                    wandb.log({"mag": mmag / repeat_time}, step=global_step)
+                    wandb.log({"flow": mflow / repeat_time}, step=global_step)
 
                 global_step += 1
 
@@ -185,6 +197,9 @@ class TrajDiffuser:
 
                 if global_step % 100 == 0:
                     wandb.log({"train/loss": loss}, step=global_step)
+                    wandb.log(
+                        {"train/lr": self.lr_scheduler.get_lr()}, step=global_step
+                    )
 
                 loss.backward()
                 self.optimizer.step()
@@ -234,7 +249,13 @@ class TrajDiffuser:
                 # flow_gt = flow_gt[:, perm]
                 # condition = condition[:, perm]
 
-                flow_gt = flow_gt[mask == 1]
+                flow_gt = normalize_trajectory(
+                    torch.flatten(flow_gt, start_dim=0, end_dim=1)
+                )
+                masked_flow_gt = flow_gt.reshape(
+                    -1, 1200, flow_gt.shape[1], flow_gt.shape[2]
+                )
+                masked_flow_gt = masked_flow_gt[mask == 1]
 
                 if vis:
                     animation = FlowNetAnimation()
@@ -266,28 +287,46 @@ class TrajDiffuser:
                             )
 
                 flow_prediction = noisy_input.transpose(1, 3)
+                flow_prediction = normalize_trajectory(
+                    torch.flatten(flow_prediction, start_dim=0, end_dim=1)
+                )
+                masked_flow_prediction = flow_prediction.reshape(
+                    -1, 1200, flow_prediction.shape[1], flow_prediction.shape[2]
+                )
                 # flow_prediction = torch.nn.functional.normalize(
                 #     flow_prediction, p=2, dim=-1
                 # )
-                largest_mag: float = torch.linalg.norm(
-                    flow_prediction, ord=2, dim=-1
-                ).max()
-                flow_prediction = flow_prediction / (largest_mag + 1e-6)
+                # largest_mag: float = torch.linalg.norm(
+                #     flow_prediction, ord=2, dim=-1
+                # ).max()
+                # flow_prediction = flow_prediction / (largest_mag + 1e-6)
                 # flow_prediction = flow_prediction.permute(1, 2, 0)
-                masked_flow_prediction = flow_prediction[mask == 1]
-
+                masked_flow_prediction = masked_flow_prediction[mask == 1]
                 # breakpoint()
 
-                mean_dist = (masked_flow_prediction - flow_gt).norm(p=2, dim=-1).mean()
-                cos_sim = torch.cosine_similarity(
-                    masked_flow_prediction, flow_gt, dim=-1
-                ).mean()
+                # mean_dist = (masked_flow_prediction - flow_gt).norm(p=2, dim=-1).mean()
+                # cos_sim = torch.cosine_similarity(
+                #     masked_flow_prediction, flow_gt, dim=-1
+                # ).mean()
+                n_nodes = torch.as_tensor([d.num_nodes for d in sample.to_data_list()]).to(self.device)  # type: ignore
+                # breakpoint()
+                loss = artflownet_loss(flow_prediction, flow_gt, n_nodes)
+
+                # Compute some metrics on flow-only regions.
+                rmse, cos_dist, mag_error = flow_metrics(
+                    masked_flow_prediction, masked_flow_gt
+                )
 
                 if vis:
                     fig = animation.animate()
                     fig.show()
 
-        return {"mean_dist": mean_dist, "cos_sim": cos_sim}
+        return {
+            "rmse": rmse,
+            "cos_dist": cos_dist,
+            "mag_error": mag_error,
+            "flow_loss": loss,
+        }
 
 
 if __name__ == "__main__":
@@ -295,11 +334,11 @@ if __name__ == "__main__":
     diffuser = TrajDiffuser(config)
 
     wandb.init(
-        # entity="r-pad",
-        entity="leisure-thu-cv",
+        entity="r-pad",
+        # entity="leisure-thu-cv",
         project="open_anything_diffusion",
         group="diffusion-PN++",
-        job_type="train",
+        job_type="overfit_trajectory",
     )
 
     datamodule = FlowTrajectoryDataModule(
@@ -315,7 +354,7 @@ if __name__ == "__main__":
     val_dataloader = datamodule.train_val_dataloader()
 
     # Train
-    diffuser.train(train_dataloader, val_dataloader)
+    # diffuser.train(train_dataloader, val_dataloader)
 
     # # Overfit
     # datamodule = FlowTrajectoryDataModule(
@@ -330,15 +369,16 @@ if __name__ == "__main__":
     # train_dataloader = datamodule.train_dataloader()
     # val_dataloader = datamodule.train_val_dataloader()
 
-    # # # Overfit
-    # samples = list(enumerate(train_dataloader))
-    # # breakpoint()
-    # sample = samples[0][1]
-    # diffuser.train([sample], [sample])
+    # # Overfit
+    samples = list(enumerate(train_dataloader))
+    # breakpoint()
+    sample = samples[0][1]
+    diffuser.train([sample], [sample])
 
     wandb.finish()
 
     # diffuser.load_model('/home/yishu/diffusion_best_ckpt.pth')
+    # diffuser.load_model('/home/yishu/open_anything_diffusion/logs/train_trajectory/2023-08-31/01-21-42/checkpoints/epoch=199-step=157200.ckpt')
 
     # ##  Overfit sample prediction
     # metric = diffuser.predict(sample, vis=True)

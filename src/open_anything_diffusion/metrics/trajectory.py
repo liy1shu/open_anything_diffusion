@@ -1,8 +1,18 @@
 import torch
 
 
+def normalize_trajectory(pred):  # pred: bs * 1200, traj_len, 3
+    pred = pred.reshape(-1, 1200, pred.shape[1], pred.shape[2])
+    norm = pred.norm(p=2, dim=-1)
+    norm = torch.max(norm, dim=1).values + 1e-6
+    pred = pred / norm[:, None, :, None]
+    return torch.flatten(pred, start_dim=0, end_dim=1)  # bs * 1200, traj_len, 3
+
+
 def flow_metrics(pred_flow, gt_flow):
     with torch.no_grad():
+        # pred_flow = normalize_trajectory(pred_flow)
+
         # RMSE
         rmse = (pred_flow - gt_flow).norm(p=2, dim=-1).mean()
 
@@ -25,6 +35,8 @@ def artflownet_loss(
     f_target: torch.Tensor,
     n_nodes: torch.Tensor,
 ) -> torch.Tensor:
+    # f_pred = normalize_trajectory(f_pred)
+
     # Flow loss, per-point.
     raw_se = ((f_pred - f_target) ** 2).sum(dim=-1)
 

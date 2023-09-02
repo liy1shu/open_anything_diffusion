@@ -69,6 +69,8 @@ class LogPredictionSamplesCallback(Callback):
         batch,
         prefix: Literal["train", "val", "unseen"],
     ):
+        if outputs is None:  # The diffusion train process don't need graph.
+            return
         preds = outputs["preds"]
         random_id = np.random.randint(0, len(batch))
         preds = preds.reshape(

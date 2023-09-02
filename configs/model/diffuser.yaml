@@ -1,0 +1,8 @@
+# Diffuser params
+name: diffuser
+time_proj_dim: 64
+time_embed_dim: 64
+freq_shift: 0
+flip_sin_to_cos: True
+num_train_timesteps: 500
+num_inference_timesteps: 500

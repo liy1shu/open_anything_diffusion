@@ -53,7 +53,8 @@ def main(cfg):
     torch.backends.cudnn.benchmark = False
 
     # Since most of us are training on 3090s+, we can use mixed precision.
-    torch.set_float32_matmul_precision("medium")
+    # torch.set_float32_matmul_precision("medium")
+    torch.set_float32_matmul_precision("highest")
 
     # Global seed for reproducibility.
     L.seed_everything(cfg.seed)
@@ -101,9 +102,13 @@ def main(cfg):
     # Model architecture is dataset-dependent, so we have a helper
     # function to create the model (while separating out relevant vals).
 
-    mask_channel = 1 if cfg.training.mask_input_channel else 0
+    if cfg.model.name == "diffuser":
+        in_channels = 3 * cfg.training.trajectory_len + cfg.model.time_embed_dim
+    else:
+        in_channels = 1 if cfg.training.mask_input_channel else 0
+
     network = pnp.PN2Dense(
-        in_channels=mask_channel,
+        in_channels=in_channels,
         out_channels=3 * trajectory_len,
         p=pnp.PN2DenseParams(),
     )
@@ -115,7 +120,9 @@ def main(cfg):
     # and the logging.
     ######################################################################
 
-    model = training_module_class[cfg.training.name](network, training_cfg=cfg.training)
+    model = training_module_class[cfg.training.name](
+        network, training_cfg=cfg.training, model_cfg=cfg.model
+    )
 
     ######################################################################
     # Set up logging in WandB.
@@ -160,9 +167,11 @@ def main(cfg):
     trainer = L.Trainer(
         accelerator="gpu",
         devices=cfg.resources.gpus,
-        precision="16-mixed",
+        # precision="16-mixed",
+        precision="32-true",
         max_epochs=cfg.training.epochs,
         logger=logger,
+        check_val_every_n_epoch=cfg.training.check_val_every_n_epoch,
         callbacks=[
             # Callback which logs whatever visuals (i.e. dataset examples, preds, etc.) we want.
             LogPredictionSamplesCallback(
@@ -183,7 +192,7 @@ def main(cfg):
             ModelCheckpoint(
                 dirpath=cfg.lightning.checkpoint_dir,
                 filename="{epoch}-{step}-{val_loss:.2f}-weights-only",
-                monitor="val/loss",
+                monitor="val/flow_loss",
                 mode="min",
                 save_weights_only=True,
             ),

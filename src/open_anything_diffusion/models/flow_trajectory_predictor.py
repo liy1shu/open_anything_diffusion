@@ -70,7 +70,7 @@ def make_trajectory_animation(traj_data):  # Make trajectory animation
 
 # Flow predictor
 class FlowTrajectoryTrainingModule(L.LightningModule):
-    def __init__(self, network, training_cfg) -> None:
+    def __init__(self, network, training_cfg, model_cfg=None) -> None:
         super().__init__()
         self.network = network
         self.lr = training_cfg.lr

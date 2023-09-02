@@ -4,54 +4,71 @@ import lightning as L
 import plotly.graph_objects as go
 import rpad.visualize_3d.plots as v3p
 import torch
+import torch.nn.functional as F
 import torch_geometric.data as tgd
 from diffusers import DDPMScheduler
 from diffusers.models.embeddings import TimestepEmbedding, Timesteps
+from diffusers.optimization import get_cosine_schedule_with_warmup
 from plotly.subplots import make_subplots
 from torch import optim
 
-from open_anything_diffusion.metrics.trajectory import artflownet_loss, flow_metrics
+from open_anything_diffusion.metrics.trajectory import (
+    artflownet_loss,
+    flow_metrics,
+    normalize_trajectory,
+)
 
 
 # Flow predictor
 class FlowTrajectoryDiffusionModule(L.LightningModule):
-    def __init__(self, network, training_cfg) -> None:
+    def __init__(self, network, training_cfg, model_cfg) -> None:
         super().__init__()
         # Training params
         self.batch_size = training_cfg.batch_size
         self.lr = training_cfg.lr
+        self.mode = training_cfg.mode
+        self.traj_len = training_cfg.trajectory_len
+        self.epochs = training_cfg.epochs
+        self.train_sample_number = training_cfg.train_sample_number
+
+        # Diffuser training param
+        self.lr_warmup_steps = training_cfg.lr_warmup_steps
 
         # Diffuser params
         self.sample_size = 1200
-        self.time_embed_dim = training_cfg.time_embed_dim
+        self.time_embed_dim = model_cfg.time_embed_dim
         self.in_channels = 3 * self.traj_len + self.time_embed_dim
         assert (
-            network.inchannels == self.in_channels
+            network.in_ch == self.in_channels
         ), "Network input channels doesn't match expectation"
-        self.traj_len = training_cfg.trajectory_len
 
         # positional time embeddings
-        flip_sin_to_cos = training_cfg.flip_sin_to_cos
-        freq_shift = training_cfg.freq_shift
+        flip_sin_to_cos = model_cfg.flip_sin_to_cos
+        freq_shift = model_cfg.freq_shift
         self.time_proj = Timesteps(64, flip_sin_to_cos, freq_shift)
-        timestep_input_dim = training_cfg.time_proj_dim
+        timestep_input_dim = model_cfg.time_proj_dim
         self.time_emb = TimestepEmbedding(timestep_input_dim, self.time_embed_dim)
 
         self.backbone = network
+        self.num_train_timesteps = model_cfg.num_train_timesteps
         self.noise_scheduler = DDPMScheduler(
-            num_train_timesteps=training_cfg.config.num_train_timesteps
+            num_train_timesteps=model_cfg.num_train_timesteps
         )
+
+        # self.num_inference_timesteps = model_cfg.num_inference_timesteps
+        # self.noise_scheduler_inference = DDIMScheduler(
+        #     num_train_timesteps=model_cfg.num_train_timesteps,
+        # )
 
     def forward(self, data) -> torch.Tensor:  # type: ignore
         timesteps = data.timesteps
-        traj_noise = data.traj_noise
+        traj_noise = data.traj_noise  # bs * 1200, traj_len, 3
+        traj_noise = torch.flatten(traj_noise, start_dim=1, end_dim=2)
 
-        t_emb = self.time_emb(self.time_proj(timesteps))
+        t_emb = self.time_emb(self.time_proj(timesteps))  # bs, 64
         # Repeat the time embedding. MAKE SURE THAT EACH BATCH ITEM IS INDEPENDENT!
-        t_emb = t_emb.repeat(1, traj_noise.shape[0], 1)  # bs, 1200, 64
+        t_emb = t_emb.unsqueeze(1).repeat(1, self.sample_size, 1)  # bs, 1200, 64
         t_emb = torch.flatten(t_emb, start_dim=0, end_dim=1)  # bs * 1200, 64
-
-        t_emb = t_emb.unsqueeze(-1).repeat(1, 1, self.sample_size)
 
         data.x = torch.cat([traj_noise, t_emb], dim=-1)  # bs * 1200, 64 + 3 * traj_len
 
@@ -61,9 +78,78 @@ class FlowTrajectoryDiffusionModule(L.LightningModule):
         return pred
 
     def _step(self, batch: tgd.Batch, mode):
-        # Make a prediction.
-        f_pred = self(batch)
-        f_pred = f_pred.reshape(f_pred.shape[0], -1, 3)  # batch * traj_len * 3
+        f_ix = batch.mask.bool()
+        if self.mode == "delta":
+            f_target = batch.delta
+        elif self.mode == "point":
+            f_target = batch.point
+        f_target = f_target  # .float()
+
+        # noisy_flow = batch.traj_noise
+        # Predict the noise.
+        noise = batch.pure_noise  # The added noise
+        noise_pred = self(batch)
+        noise_pred = noise_pred.reshape(
+            noise_pred.shape[0], -1, 3
+        )  # batch, traj_len, 3
+
+        # Compute the loss.
+        loss = F.mse_loss(noise_pred, noise)
+
+        self.log_dict(
+            {
+                f"{mode}/loss": loss,
+                # The other metrics will be tested in validation
+                # f"{mode}/rmse": rmse,
+                # f"{mode}/cosine_similarity": cos_dist,
+                # f"{mode}/mag_error": mag_error,
+            },
+            add_dataloader_idx=False,
+            batch_size=len(batch),
+        )
+        return None, loss
+
+    # @torch.inference_mode()
+    def predict(self, batch: tgd.Batch, mode):
+        bs = batch.delta.shape[0] // self.sample_size
+        batch.traj_noise = torch.randn_like(batch.delta, device=self.device)  # .float()
+        # batch.traj_noise = normalize_trajectory(batch.traj_noise)
+        # breakpoint()
+
+        # import time
+        # batch_time = 0
+        # model_time = 0
+        # noise_scheduler_time = 0
+
+        # self.noise_scheduler_inference.set_timesteps(self.num_inference_timesteps)
+        # print(self.noise_scheduler_inference.timesteps)
+        # for t in self.noise_scheduler_inference.timesteps:
+        for t in self.noise_scheduler.timesteps:
+            # tm = time.time()
+            batch.timesteps = torch.zeros(bs, device=self.device) + t  # Uniform t steps
+            batch.timesteps = batch.timesteps.long()
+            # batch_time += time.time() - tm
+
+            # tm = time.time()
+            model_output = self(batch)  # bs * 1200, traj_len * 3
+            model_output = model_output.reshape(
+                model_output.shape[0], -1, 3
+            )  # bs * 1200, traj_len, 3
+
+            batch.traj_noise = self.noise_scheduler.step(
+                # batch.traj_noise = self.noise_scheduler_inference.step(
+                model_output.reshape(
+                    -1, self.sample_size, model_output.shape[1], model_output.shape[2]
+                ),
+                t,
+                batch.traj_noise.reshape(
+                    -1, self.sample_size, model_output.shape[1], model_output.shape[2]
+                ),
+            ).prev_sample
+            batch.traj_noise = torch.flatten(batch.traj_noise, start_dim=0, end_dim=1)
+
+        f_pred = batch.traj_noise  # .float()
+        f_pred = normalize_trajectory(f_pred)
 
         # Compute the loss.
         n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
@@ -73,50 +159,16 @@ class FlowTrajectoryDiffusionModule(L.LightningModule):
         elif self.mode == "point":
             f_target = batch.point
 
-        f_target = f_target.float()
+        f_target = f_target  # .float()
+        f_target = normalize_trajectory(f_target)
         loss = artflownet_loss(f_pred, f_target, n_nodes)
 
         # Compute some metrics on flow-only regions.
-        rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
+        rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], batch.delta[f_ix])
 
         self.log_dict(
             {
-                f"{mode}/loss": loss,
-                f"{mode}/rmse": rmse,
-                f"{mode}/cosine_similarity": cos_dist,
-                f"{mode}/mag_error": mag_error,
-            },
-            add_dataloader_idx=False,
-            batch_size=len(batch),
-        )
-        return f_pred, loss
-
-    def predict(self, batch: tgd.Batch, mode):
-        bs = batch.delta.shape[0] / self.sample_size
-        for t in self.noise_scheduler.timesteps:
-            batch.timesteps = torch.zeros(bs) + t  # Uniform t steps
-            batch.timesteps = batch.timesteps.long()
-            model_output = self(batch)
-
-            # Update traj_noise
-            batch.traj_noise = self.noise_scheduler.step(
-                model_output, t, batch.traj_noise
-            ).prev_sample
-
-        f_pred = batch.traj_noise.transpose(1, 3)
-        largest_mag: float = torch.linalg.norm(f_pred, ord=2, dim=-1).max()
-        f_pred = f_pred / (largest_mag + 1e-6)
-
-        loss = artflownet_loss(f_pred, batch.delta, self.sample_size)
-
-        # Compute some metrics on flow-only regions.
-        rmse, cos_dist, mag_error = flow_metrics(
-            f_pred[batch.mask == 1], batch.delta[batch.mask == 1]
-        )
-
-        self.log_dict(
-            {
-                f"{mode}/loss": loss,
+                f"{mode}/flow_loss": loss,
                 f"{mode}/rmse": rmse,
                 f"{mode}/cosine_similarity": cos_dist,
                 f"{mode}/mag_error": mag_error,
@@ -128,15 +180,22 @@ class FlowTrajectoryDiffusionModule(L.LightningModule):
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=self.lr)
-        lr_scheduler = optim.lr_scheduler.MultiStepLR(
-            optimizer, milestones=[100, 150], gamma=0.1
+        lr_scheduler = get_cosine_schedule_with_warmup(
+            optimizer=optimizer,
+            num_warmup_steps=self.lr_warmup_steps,
+            # num_training_steps=(len(train_dataloader) * config.num_epochs),
+            num_training_steps=(
+                (self.train_sample_number // self.batch_size) * self.epochs
+            ),
         )
         return [optimizer], [lr_scheduler]
 
     def training_step(self, batch: tgd.Batch, batch_id):  # type: ignore
         self.train()
+        batch.delta = normalize_trajectory(batch.delta)
         # Add timestep & random noise
-        bs = batch.delta.shape[0] / self.sample_size
+        bs = batch.delta.shape[0] // self.sample_size
+        # breakpoint()
         batch.timesteps = torch.randint(
             0,
             self.noise_scheduler.config.num_train_timesteps,
@@ -145,9 +204,18 @@ class FlowTrajectoryDiffusionModule(L.LightningModule):
         ).long()
 
         noise = torch.randn_like(batch.delta, device=self.device)
+        batch.pure_noise = noise
+        # broadcast_timestep = torch.flatten(batch.timesteps.unsqueeze(1).repeat(1, self.sample_size), start_dim=0, end_dim=-1)  # bs * 1200
+
         batch.traj_noise = self.noise_scheduler.add_noise(
-            batch.delta, noise, batch.timesteps
+            batch.delta.reshape(-1, self.sample_size, noise.shape[1], noise.shape[2]),
+            noise.reshape(
+                -1, self.sample_size, noise.shape[1], noise.shape[2]
+            ),  # bs, 1200, traj_len, 3
+            # broadcast_timestep
+            batch.timesteps,
         )
+        batch.traj_noise = torch.flatten(batch.traj_noise, start_dim=0, end_dim=1)
 
         _, loss = self._step(batch, "train")
         return loss
@@ -156,7 +224,8 @@ class FlowTrajectoryDiffusionModule(L.LightningModule):
         self.eval()
         dataloader_names = ["train", "val", "unseen"]
         name = dataloader_names[dataloader_idx]
-        f_pred, loss = self.predict(batch, name)
+        with torch.no_grad():
+            f_pred, loss = self.predict(batch, name)
         return {"preds": f_pred, "loss": loss}
 
     @staticmethod
