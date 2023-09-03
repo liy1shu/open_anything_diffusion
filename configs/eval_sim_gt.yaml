@@ -5,7 +5,7 @@ job_type: ${mode}_${dataset.name}
 
 defaults:
   # Each of these have their own configuration parameters.
-  - dataset: flowbot
+  - dataset: trajectory
   - model: artflownet
 
   # A set of inference settings for the model. Note that these may be different

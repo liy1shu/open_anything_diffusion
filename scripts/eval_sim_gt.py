@@ -14,8 +14,7 @@ import tqdm
 import wandb
 from rpad.visualize_3d import html
 
-from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
-from open_anything_diffusion.simulations.simulation import trial_flow
+from open_anything_diffusion.simulations.simulation import trial_gt_trajectory
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
 
 
@@ -64,12 +63,12 @@ def main(cfg):
     # Should be the same one as in training, but we're gonna use val+test
     # dataloaders.
     ######################################################################
-    datamodule = FlowBotDataModule(
-        root=cfg.dataset.data_dir,
-        batch_size=cfg.inference.batch_size,
-        num_workers=cfg.resources.num_workers,
-        n_proc=cfg.resources.n_proc_per_worker,  # Add n_proc
-    )
+    # datamodule = FlowBotDataModule(
+    #     root=cfg.dataset.data_dir,
+    #     batch_size=cfg.inference.batch_size,
+    #     num_workers=cfg.resources.num_workers,
+    #     n_proc=cfg.resources.n_proc_per_worker,  # Add n_proc
+    # )
 
     ######################################################################
     # Set up logging in WandB.
@@ -135,8 +134,17 @@ def main(cfg):
         if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
             continue
         print(f"OBJ {obj_id} of {obj_cat}")
-        trial_figs, trial_results = trial_flow(
+        # trial_figs, trial_results = trial_flow(
+        #     obj_id=obj_id,
+        #     n_steps=30,
+        #     all_joint=True,
+        #     available_joints=available_links,
+        #     gui=cfg.gui,
+        #     website=cfg.website,
+        # )
+        trial_figs, trial_results = trial_gt_trajectory(
             obj_id=obj_id,
+            traj_len=cfg.inference.trajectory_len,
             n_steps=30,
             all_joint=True,
             available_joints=available_links,

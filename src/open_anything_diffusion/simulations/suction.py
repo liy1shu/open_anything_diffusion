@@ -413,7 +413,6 @@ class GTTrajectoryModel:
             raw_data,
             "all",
         )
-
         return torch.from_numpy(trajectory)
 
 
@@ -583,6 +582,9 @@ def run_trial(
             best_flow = pred_flow[link_ixs][best_flow_ix]
 
             # Perform the pulling.
+            if best_flow.sum() == 0:
+                continue
+            # print(best_flow)
             env.pull(best_flow)
 
             success = env.detect_success(target_link)
