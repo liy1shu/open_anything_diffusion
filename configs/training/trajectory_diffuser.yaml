@@ -5,5 +5,5 @@ batch_size: 64
 epochs: 1000
 check_val_every_n_epoch: 5
 train_sample_number : 50300
-trajectory_len: 10
+trajectory_len: 1
 mode: delta

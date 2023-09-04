@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Any, Dict
 
 import lightning as L
 import plotly.graph_objects as go
@@ -6,7 +6,7 @@ import rpad.visualize_3d.plots as v3p
 import torch
 import torch.nn.functional as F
 import torch_geometric.data as tgd
-from diffusers import DDPMScheduler
+from diffusers import DDIMScheduler, DDPMScheduler
 from diffusers.models.embeddings import TimestepEmbedding, Timesteps
 from diffusers.optimization import get_cosine_schedule_with_warmup
 from plotly.subplots import make_subplots
@@ -291,69 +291,145 @@ class FlowTrajectoryDiffusionModule(L.LightningModule):
         return {"diffuser_plot": fig}
 
 
-# class FlowTrajectoryDiffuserInferenceModule(L.LightningModule):
-#     def __init__(self, network, inference_config) -> None:
-#         super().__init__()
-#         self.network = network
-#         self.mask_input_channel = inference_config.mask_input_channel
+class FlowTrajectoryDiffuserInferenceModule(L.LightningModule):
+    def __init__(self, network, inference_cfg, model_cfg) -> None:
+        super().__init__()
+        # Inference params
+        self.batch_size = inference_cfg.batch_size
+        self.traj_len = inference_cfg.trajectory_len
 
-#     def forward(self, data) -> torch.Tensor:  # type: ignore
-#         # Maybe add the mask as an input to the network.
-#         if self.mask_input_channel:
-#             data.x = data.mask.reshape(len(data.mask), 1)
+        # Diffuser params
+        self.sample_size = 1200
+        self.time_embed_dim = model_cfg.time_embed_dim
+        self.in_channels = 3 * self.traj_len + self.time_embed_dim
+        assert (
+            network.in_ch == self.in_channels
+        ), "Network input channels doesn't match expectation"
 
-#         # Run the model.
-#         trajectory = typing.cast(torch.Tensor, self.network(data))
+        # positional time embeddings
+        flip_sin_to_cos = model_cfg.flip_sin_to_cos
+        freq_shift = model_cfg.freq_shift
+        self.time_proj = Timesteps(64, flip_sin_to_cos, freq_shift)
+        timestep_input_dim = model_cfg.time_proj_dim
+        self.time_emb = TimestepEmbedding(timestep_input_dim, self.time_embed_dim)
 
-#         return trajectory
+        self.backbone = network
+        self.noise_scheduler = DDPMScheduler(
+            num_train_timesteps=model_cfg.num_train_timesteps
+        )
+        self.faster_noise_scheduler = DDIMScheduler(
+            num_train_timesteps=model_cfg.num_train_timesteps
+        )
 
-#     def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:  # type: ignore
-#         return self.forward(batch)
+    def load_from_ckpt(self, ckpt_file):
+        ckpt = torch.load(ckpt_file)
+        self.load_state_dict(ckpt["state_dict"])
 
-#     # the predict step input is different now, pay attention
-#     def predict(self, xyz: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-#         """Predict the flow for a single object. The point cloud should
-#         come straight from the maniskill processed observation function.
+    def forward(self, data) -> torch.Tensor:  # type: ignore
+        timesteps = data.timesteps
+        traj_noise = data.traj_noise  # bs * 1200, traj_len, 3
+        traj_noise = torch.flatten(traj_noise, start_dim=1, end_dim=2)
 
-#         Args:
-#             xyz (torch.Tensor): Nx3 pointcloud
-#             mask (torch.Tensor): Nx1 mask of the part that will move.
+        t_emb = self.time_emb(self.time_proj(timesteps))  # bs, 64
+        # Repeat the time embedding. MAKE SURE THAT EACH BATCH ITEM IS INDEPENDENT!
+        t_emb = t_emb.unsqueeze(1).repeat(1, self.sample_size, 1)  # bs, 1200, 64
+        t_emb = torch.flatten(t_emb, start_dim=0, end_dim=1)  # bs * 1200, 64
 
-#         Returns:
-#             torch.Tensor: Nx3 dense flow prediction
-#         """
-#         print(xyz, mask)
-#         assert len(xyz) == len(mask)
-#         assert len(xyz.shape) == 2
-#         assert len(mask.shape) == 1
+        data.x = torch.cat([traj_noise, t_emb], dim=-1)  # bs * 1200, 64 + 3 * traj_len
 
-#         data = Data(pos=xyz, mask=mask)
-#         batch = Batch.from_data_list([data])
-#         batch = batch.to(self.device)
-#         self.eval()
-#         with torch.no_grad():
-#             trajectory = self.forward(batch)
-#         return trajectory.reshape(trajectory.shape[0], -1, 3)  # batch * traj_len * 3
+        # Run the model.
+        pred = self.backbone(data)
+
+        return pred
+
+    @torch.no_grad()
+    def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:  # type: ignore
+        bs = batch.pos.shape[0] // self.sample_size
+        batch.traj_noise = torch.randn(
+            (batch.pos.shape[0], self.traj_len, 3), device=self.device
+        )  # .float()
+        for t in self.noise_scheduler.timesteps:
+            batch.timesteps = torch.zeros(bs, device=self.device) + t  # Uniform t steps
+            batch.timesteps = batch.timesteps.long()
+            model_output = self(batch)  # bs * 1200, traj_len * 3
+            model_output = model_output.reshape(
+                model_output.shape[0], -1, 3
+            )  # bs * 1200, traj_len, 3
+
+            batch.traj_noise = self.noise_scheduler.step(
+                # batch.traj_noise = self.noise_scheduler_inference.step(
+                model_output.reshape(
+                    -1, self.sample_size, model_output.shape[1], model_output.shape[2]
+                ),
+                t,
+                batch.traj_noise.reshape(
+                    -1, self.sample_size, model_output.shape[1], model_output.shape[2]
+                ),
+            ).prev_sample
+            batch.traj_noise = torch.flatten(batch.traj_noise, start_dim=0, end_dim=1)
+
+        f_pred = batch.traj_noise  # .float()
+
+        print(f_pred.shape)
+        return f_pred
+
+    @torch.no_grad()
+    def faster_predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:  # type: ignore
+        bs = batch.pos.shape[0] // self.sample_size
+        batch.traj_noise = torch.randn(
+            (batch.pos.shape[0], self.traj_len, 3), device=self.device
+        )  # .float()
+        self.faster_noise_scheduler.set_timesteps(100)
+        for t in self.noise_scheduler.timesteps:
+            batch.timesteps = torch.zeros(bs, device=self.device) + t  # Uniform t steps
+            batch.timesteps = batch.timesteps.long()
+            model_output = self(batch)  # bs * 1200, traj_len * 3
+            model_output = model_output.reshape(
+                model_output.shape[0], -1, 3
+            )  # bs * 1200, traj_len, 3
+
+            batch.traj_noise = self.faster_noise_scheduler.step(
+                # batch.traj_noise = self.noise_scheduler_inference.step(
+                model_output.reshape(
+                    -1, self.sample_size, model_output.shape[1], model_output.shape[2]
+                ),
+                t,
+                batch.traj_noise.reshape(
+                    -1, self.sample_size, model_output.shape[1], model_output.shape[2]
+                ),
+            ).prev_sample
+            batch.traj_noise = torch.flatten(batch.traj_noise, start_dim=0, end_dim=1)
+
+        f_pred = batch.traj_noise  # .float()
+
+        print(f_pred.shape)
+        return f_pred
 
 
-# class FlowSimulationDiffuserInferenceModule(L.LightningModule):
-#     def __init__(self, network) -> None:
-#         super().__init__()
-#         self.network = network
+class FlowTrajectoryDiffuserSimulationModule(L.LightningModule):
+    def __init__(self, network, inference_cfg, model_cfg) -> None:
+        super().__init__()
+        self.model = FlowTrajectoryDiffuserInferenceModule(
+            network, inference_cfg, model_cfg
+        )
 
-#     def forward(self, data) -> torch.Tensor:  # type: ignore
-#         # Maybe add the mask as an input to the network.
-#         rgb, depth, seg, P_cam, P_world, pc_seg, segmap = data
+    def load_from_ckpt(self, ckpt_file):
+        self.model.load_from_ckpt(ckpt_file)
 
-#         data = tgd.Data(
-#             pos=torch.from_numpy(P_world).float(),
-#             mask=torch.ones(P_world.shape[0]).float(),
-#         )
-#         batch = tgd.Batch.from_data_list([data])
-#         batch = batch.to(self.device)
-#         batch.x = batch.mask.reshape(len(batch.mask), 1)
-#         self.eval()
-#         with torch.no_grad():
-#             trajectory = self.network(batch)
-#         # print("Trajectory prediction shape:", trajectory.shape)
-#         return trajectory.reshape(trajectory.shape[0], -1, 3)
+    def forward(self, data) -> torch.Tensor:  # type: ignore
+        # Maybe add the mask as an input to the network.
+        rgb, depth, seg, P_cam, P_world, pc_seg, segmap = data
+
+        data = tgd.Data(
+            pos=torch.from_numpy(P_world).float().cuda(),
+            # mask=torch.ones(P_world.shape[0]).float(),
+        )
+        batch = tgd.Batch.from_data_list([data])
+        # batch = batch.to(self.device)
+        # batch.x = batch.mask.reshape(len(batch.mask), 1)
+        self.eval()
+        with torch.no_grad():
+            # trajectory = self.model.faster_predict_step(batch, 0)
+            trajectory = self.model.predict_step(batch, 0)
+        # print("Trajectory prediction shape:", trajectory.shape)
+        return trajectory.cpu()

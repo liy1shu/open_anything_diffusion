@@ -1,12 +1,12 @@
-mode: eval
+mode: eval_sim
 
 # This is somewhat arbitrary.
 job_type: ${mode}_${dataset.name}
 
 defaults:
   # Each of these have their own configuration parameters.
-  - dataset: flowbot
-  - model: artflownet
+  - dataset: trajectory
+  - model: diffuser
 
   # A set of inference settings for the model. Note that these may be different
   # from / or a subset of the training settings. This is that we don't have to
@@ -20,18 +20,27 @@ defaults:
   - _self_
 
 seed: 42
+gui: False
+website: False
 
 # This is the checkpoint that we're evaluating. You can change this to whatever you need,
 # like if you want multiple checkpoints simultaneously, etc.
 checkpoint:
   # If we want to load a model for a specific run, we can change that here.
   # run_id: ???
-  run_id: nxe7uxh4  # flowbot
+
+  # ArtflowNet:
+  # run_id: nxe7uxh4  # flowbot
   # run_id: ah26pym3  # traj 1
   # run_id: l5stf32k  # traj 5
   # run_id: m2twtvm7   # traj 10
   # run_id: yiel0na4   # traj 15
   # run_id: zmnrssob  # traj 20
+
+  # Diffuser:
+  run_id: 5pp284n8  # traj1
+  # run_id: o69oit80  # traj5
+  # run_id: 136gqqta  # traj10
   reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
 
 resources:
@@ -44,9 +53,10 @@ wandb:
   # The group ***should*** be the same as the training group (so it can be bundled)
   # nicely in the UI. But you might have a one-off eval or something.
   # group: ???
-  group: experiment-9uex8k1u  # flowbot
+  # group: experiment-9uex8k1u  # flowbot
   # group: traj1  # traj 1 experiment-sb009k1f
   # group: traj5  # traj 5 experiment-y2kdp0hq
   # group: traj20
+  group: diffuser1
 
 metric_output_dir: './logs'
