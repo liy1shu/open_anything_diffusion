@@ -38,9 +38,9 @@ checkpoint:
   # run_id: zmnrssob  # traj 20
 
   # Diffuser:
-  run_id: 5pp284n8  # traj1
+  # run_id: 5pp284n8  # traj1
   # run_id: o69oit80  # traj5
-  # run_id: 136gqqta  # traj10
+  run_id: 136gqqta  # traj10
   reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
 
 resources:
@@ -57,6 +57,6 @@ wandb:
   # group: traj1  # traj 1 experiment-sb009k1f
   # group: traj5  # traj 5 experiment-y2kdp0hq
   # group: traj20
-  group: diffuser1
+  group: diffuser10
 
 metric_output_dir: './logs'

@@ -145,7 +145,7 @@ def main(cfg):
     metric_df = pd.DataFrame(
         np.zeros((len(set(id_to_cat.values())), 3)),
         index=obj_cats,
-        columns=["category", "success_rate", "norm_dist"],
+        columns=["count", "success_rate", "norm_dist"],
     )
     category_counts = {}
     for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
