@@ -388,5 +388,11 @@ logs/
 results/
 notebooks/artifacts
 notebooks/csv
+src/open_anything_diffusion/models/diffusion/wandb
 src/open_anything_diffusion/models/diffusion_ckpt
 src/open_anything_diffusion/models/wandb
+
+# Files
+*.jpeg
+*.pth
+*.csv

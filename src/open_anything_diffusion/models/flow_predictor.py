@@ -72,7 +72,7 @@ class FlowPredictorTrainingModule(L.LightningModule):
 
     def validation_step(self, batch: tgd.Batch, batch_id, dataloader_idx=0):  # type: ignore
         self.eval()
-        dataloader_names = ["train", "val", "unseen"]
+        dataloader_names = ["val", "train", "unseen"]
         name = dataloader_names[dataloader_idx]
         f_pred, loss = self._step(batch, name)
         return {"preds": f_pred, "loss": loss}

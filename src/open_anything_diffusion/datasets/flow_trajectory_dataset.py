@@ -125,6 +125,7 @@ class FlowTrajectoryDataset:
         randomize_joints: bool = True,
         randomize_camera: bool = True,
         trajectory_len: int = 5,
+        special_req: str = None,
         n_points: Optional[int] = None,
     ) -> None:
         """The FlowBot3D dataset. Set n_points depending if you can handle ragged batches or not.
@@ -143,11 +144,19 @@ class FlowTrajectoryDataset:
         self.randomize_joints = randomize_joints
         self.randomize_camera = randomize_camera
         self.trajectory_len = trajectory_len
+        self.special_req = special_req
         self.n_points = n_points
 
     def get_data(self, obj_id: str, seed=None) -> FlowTrajectoryData:
         # Select the camera.
-        joints = "random" if self.randomize_joints else None
+        if self.special_req is None:
+            joints = "random" if self.randomize_joints else None
+        else:
+            joints = (
+                self.special_req
+            )  # TODO: Set to random-oc as for multimodal experiments
+        # print(joints)
+        # joints = "random" if self.randomize_joints else None
         camera_xyz = "random" if self.randomize_camera else None
 
         rng = np.random.default_rng(seed)

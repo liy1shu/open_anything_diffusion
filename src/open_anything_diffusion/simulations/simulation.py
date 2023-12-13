@@ -293,6 +293,7 @@ def trial_with_prediction(
     obj_id="41083",
     network=None,
     n_step=1,
+    gt_mask=False,
     gui=False,
     all_joint=False,
     website=False,
@@ -310,7 +311,7 @@ def trial_with_prediction(
 
     print("available_joints:", available_joints)
 
-    model = FlowSimulationInferenceModule(network)
+    model = FlowSimulationInferenceModule(network, mask_input_channel=gt_mask)
 
     if all_joint:  # Need to traverse all the joints
         picked_joints = available_joints
@@ -324,7 +325,7 @@ def trial_with_prediction(
         # print(f"opening {joint.name}, {joint.label}")
         print(f"opening {joint_name}")
         env = PMSuctionSim(obj_id, pm_dir, gui=gui)
-        gt_model = GTFlowModel(raw_data, env)
+        gt_model = GTFlowModel(raw_data, env) if gt_mask else None
         fig, result = run_trial(
             env,
             raw_data,

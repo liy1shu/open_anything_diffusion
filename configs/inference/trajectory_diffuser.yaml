@@ -1,3 +1,4 @@
 name: trajectory_diffuser
 batch_size: 64
-trajectory_len: 10
+trajectory_len: 1
+mpc_step: 15

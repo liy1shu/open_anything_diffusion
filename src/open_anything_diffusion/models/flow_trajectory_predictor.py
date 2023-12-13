@@ -135,7 +135,7 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
 
     def validation_step(self, batch: tgd.Batch, batch_id, dataloader_idx=0):  # type: ignore
         self.eval()
-        dataloader_names = ["train", "val", "unseen"]
+        dataloader_names = ["val", "train", "unseen"]
         name = dataloader_names[dataloader_idx]
         f_pred, loss = self._step(batch, name)
         return {"preds": f_pred, "loss": loss}
@@ -209,6 +209,8 @@ class FlowTrajectoryInferenceModule(L.LightningModule):
         super().__init__()
         self.network = network
         self.mask_input_channel = inference_config.mask_input_channel
+        self.trajectory_len = inference_config.trajectory_len
+        # self.mpc_step = inference_config.mpc_step
 
     def forward(self, data) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
@@ -250,9 +252,10 @@ class FlowTrajectoryInferenceModule(L.LightningModule):
 
 
 class FlowSimulationInferenceModule(L.LightningModule):
-    def __init__(self, network) -> None:
+    def __init__(self, network, mask_input_channel) -> None:
         super().__init__()
         self.network = network
+        self.mask_input_channel = mask_input_channel
 
     def forward(self, data) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
@@ -264,7 +267,8 @@ class FlowSimulationInferenceModule(L.LightningModule):
         )
         batch = tgd.Batch.from_data_list([data])
         batch = batch.to(self.device)
-        batch.x = batch.mask.reshape(len(batch.mask), 1)
+        if self.mask_input_channel:
+            batch.x = batch.mask.reshape(len(batch.mask), 1)
         self.eval()
         with torch.no_grad():
             trajectory = self.network(batch)

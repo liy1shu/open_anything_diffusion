@@ -1,14 +1,14 @@
 mode: eval
 
 # This is somewhat arbitrary.
-job_type: ${mode}_${dataset.name}
+job_type: ${mode}_${dataset.name}_wta
 
 defaults:
   # Each of these have their own configuration parameters.
   # - dataset: flowbot
   - dataset: trajectory
-  # - model: artflownet
-  - model: diffuser
+  - model: artflownet
+  # - model: diffuser
 
   # A set of inference settings for the model. Note that these may be different
   # from / or a subset of the training settings. This is that we don't have to
@@ -39,8 +39,16 @@ checkpoint:
 
   # Diffuser:
   # run_id: 5pp284n8  # traj1
-  # run_id: o69oit80  # traj5
-  run_id: 136gqqta  # traj10
+  # run_id: aww6u0ye  # traj5
+  # run_id: f2abrctk  # traj10
+
+  # Flowbot no mask
+  # run_id: 4xb2c95k
+
+  # Flowbot half-half
+  # run_id: 302dfxe5
+  # Flowbot fully closed
+  run_id: 8699d8oe
   reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
 
 resources:
@@ -57,6 +65,10 @@ wandb:
   # group: traj1  # traj 1 experiment-sb009k1f
   # group: traj5  # traj 5 experiment-y2kdp0hq
   # group: traj1
-  group: diffuser10
+  # group: diffuser1
+  # group: flowbot_nomask
+  # group: flowbot_mixed
+  group: flowbot_closed
+  # reference: /home/yishu/open_anything_diffusion/logs/train_trajectory/2023-09-14/00-11-03/checkpoints/epoch=3819-step=3002520.ckpt  # diffuser1
 
 metric_output_dir: './logs'

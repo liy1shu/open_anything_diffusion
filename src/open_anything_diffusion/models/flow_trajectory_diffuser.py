@@ -6,6 +6,7 @@ import rpad.visualize_3d.plots as v3p
 import torch
 import torch.nn.functional as F
 import torch_geometric.data as tgd
+import tqdm
 from diffusers import DDIMScheduler, DDPMScheduler
 from diffusers.models.embeddings import TimestepEmbedding, Timesteps
 from diffusers.optimization import get_cosine_schedule_with_warmup
@@ -111,6 +112,7 @@ class FlowTrajectoryDiffusionModule(L.LightningModule):
 
     # @torch.inference_mode()
     def predict(self, batch: tgd.Batch, mode):
+        # torch.eval()
         bs = batch.delta.shape[0] // self.sample_size
         batch.traj_noise = torch.randn_like(batch.delta, device=self.device)  # .float()
         # batch.traj_noise = normalize_trajectory(batch.traj_noise)
@@ -161,10 +163,11 @@ class FlowTrajectoryDiffusionModule(L.LightningModule):
 
         f_target = f_target  # .float()
         f_target = normalize_trajectory(f_target)
+        # print(f_pred[f_ix], batch.delta[f_ix])
         loss = artflownet_loss(f_pred, f_target, n_nodes)
 
         # Compute some metrics on flow-only regions.
-        rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], batch.delta[f_ix])
+        rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
 
         self.log_dict(
             {
@@ -222,10 +225,11 @@ class FlowTrajectoryDiffusionModule(L.LightningModule):
 
     def validation_step(self, batch: tgd.Batch, batch_id, dataloader_idx=0):  # type: ignore
         self.eval()
-        dataloader_names = ["train", "val", "unseen"]
+        dataloader_names = ["val", "train", "unseen"]
         name = dataloader_names[dataloader_idx]
         with torch.no_grad():
             f_pred, loss = self.predict(batch, name)
+        # breakpoint()
         return {"preds": f_pred, "loss": loss}
 
     @staticmethod
@@ -404,6 +408,125 @@ class FlowTrajectoryDiffuserInferenceModule(L.LightningModule):
 
         print(f_pred.shape)
         return f_pred
+
+    # For winner takes it all evaluation
+    @torch.inference_mode()
+    def predict_wta(self, dataloader, mode="delta", trial_times=20):
+        all_rmse = 0
+        all_cos_dist = 0
+        all_mag_error = 0
+        all_flow_loss = 0
+        all_multimodal = 0
+
+        all_directions = []  # dataloader * trial_times
+
+        for id, orig_sample in tqdm.tqdm(enumerate(dataloader)):
+            bs = orig_sample.delta.shape[0] // self.sample_size
+            assert bs == 1, f"batch size should be 1, now is {bs}"
+
+            # batch every sample into bsz of trial_times
+            data_list = orig_sample.to_data_list() * trial_times
+            batch = tgd.Batch.from_data_list(data_list)
+            bs = trial_times
+
+            batch.traj_noise = torch.randn_like(
+                batch.delta, device=self.device
+            )  # .float()
+
+            for t in self.noise_scheduler.timesteps:
+                batch.timesteps = (
+                    torch.zeros(bs, device=self.device) + t
+                )  # Uniform t steps
+                batch.timesteps = batch.timesteps.long()
+
+                model_output = self(batch)  # bs * 1200, traj_len * 3
+                model_output = model_output.reshape(
+                    model_output.shape[0], -1, 3
+                )  # bs * 1200, traj_len, 3
+
+                batch.traj_noise = self.noise_scheduler.step(
+                    model_output.reshape(
+                        -1,
+                        self.sample_size,
+                        model_output.shape[1],
+                        model_output.shape[2],
+                    ),
+                    t,
+                    batch.traj_noise.reshape(
+                        -1,
+                        self.sample_size,
+                        model_output.shape[1],
+                        model_output.shape[2],
+                    ),
+                ).prev_sample
+                batch.traj_noise = torch.flatten(
+                    batch.traj_noise, start_dim=0, end_dim=1
+                )
+
+            f_pred = batch.traj_noise  # .float()
+            f_pred = normalize_trajectory(f_pred)
+
+            # Compute the loss.
+            n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
+            f_ix = batch.mask.bool()
+            if mode == "delta":
+                f_target = batch.delta
+            elif mode == "point":
+                f_target = batch.point
+
+            f_target = f_target  # .float()
+            f_target = normalize_trajectory(f_target)
+            flow_loss = artflownet_loss(f_pred, f_target, n_nodes, reduce=False)
+
+            # Compute some metrics on flow-only regions.
+            rmse, cos_dist, mag_error = flow_metrics(
+                f_pred[f_ix], f_target[f_ix], reduce=False
+            )
+
+            # Aggregate the results
+            # Choose the one with smallest flow loss
+            flow_loss = flow_loss.reshape(bs, -1).mean(-1)
+            rmse = rmse.reshape(bs, -1).mean(-1)
+            cos_dist = cos_dist.reshape(bs, -1).mean(-1)
+
+            all_directions += list(cos_dist)
+
+            mag_error = mag_error.reshape(bs, -1).mean(-1)
+
+            chosen_id = torch.min(flow_loss, 0)[1]  # index
+            chosen_direction = cos_dist[chosen_id]
+            if chosen_direction > 0:
+                multimodal = torch.sum((cos_dist + 0.3) < 0) != 0  # < 0.3
+            else:
+                multimodal = torch.sum((cos_dist - 0.3) > 0) != 0  # > 0.3
+
+            print(
+                multimodal,
+                rmse[chosen_id],
+                cos_dist[chosen_id],
+                mag_error[chosen_id],
+                flow_loss[chosen_id],
+            )
+            all_multimodal += multimodal.item()
+            all_rmse += rmse[chosen_id].item()
+            all_cos_dist += cos_dist[chosen_id].item()
+            all_mag_error += mag_error[chosen_id].item()
+            all_flow_loss += flow_loss[chosen_id].item()
+
+        metric_dict = {
+            f"flow_loss": all_flow_loss / len(dataloader),
+            f"rmse": all_rmse / len(dataloader),
+            f"cosine_similarity": all_cos_dist / len(dataloader),
+            f"mag_error": all_mag_error / len(dataloader),
+            f"multimodal": all_multimodal / len(dataloader),
+        }
+
+        self.log_dict(
+            metric_dict,
+            add_dataloader_idx=False,
+            batch_size=len(batch),
+        )
+        return metric_dict, all_directions
 
 
 class FlowTrajectoryDiffuserSimulationModule(L.LightningModule):

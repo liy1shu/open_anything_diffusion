@@ -140,7 +140,12 @@ def main(cfg):
             continue
         print(f"OBJ {obj_id} of {obj_cat}")
         trial_figs, trial_results = trial_with_prediction(
-            obj_id=obj_id, network=network, n_step=30, gui=True, all_joint=True
+            obj_id=obj_id,
+            network=network,
+            gt_mask=cfg.inference.mask_input_channel,
+            n_step=30,
+            gui=cfg.gui,
+            all_joint=True,
         )
 
         # Wandb table
@@ -151,23 +156,25 @@ def main(cfg):
             metric_df.loc[obj_cat]["success_rate"] += result.success
             metric_df.loc[obj_cat]["norm_dist"] += result.metric
 
-        # Network visualization
-        for joint_name, fig in trial_figs.items():
-            tag = f"{obj_id}_{joint_name}"
-            doc.add_plot(obj_cat, tag, fig)
-            doc.add_video(
-                obj_cat, tag, f"http://128.2.178.238:9000/video_assets/{tag}.mp4"
-            )
-        # print(trial_results)
-        doc.write_site("./logs/simu_eval")
+        if cfg.website:
+            # Network visualization
+            for joint_name, fig in trial_figs.items():
+                tag = f"{obj_id}_{joint_name}"
+                doc.add_plot(obj_cat, tag, fig)
+                doc.add_video(
+                    obj_cat, tag, f"http://128.2.178.238:9000/video_assets/{tag}.mp4"
+                )
+            # print(trial_results)
+            doc.write_site("./logs/simu_eval")
 
-    for obj_cat in category_counts.keys():
-        metric_df.loc[obj_cat]["success_rate"] /= category_counts[obj_cat]
-        metric_df.loc[obj_cat]["norm_dist"] /= category_counts[obj_cat]
-        metric_df.loc[obj_cat]["category"] = obj_cat
+        wandb_df = metric_df.copy(deep=True)
+        for obj_cat in category_counts.keys():
+            wandb_df.loc[obj_cat]["success_rate"] /= category_counts[obj_cat]
+            wandb_df.loc[obj_cat]["norm_dist"] /= category_counts[obj_cat]
+            wandb_df.loc[obj_cat]["count"] = category_counts[obj_cat]
 
-    table = wandb.Table(dataframe=metric_df)
-    run.log({f"simulation_metric_table": table})
+        table = wandb.Table(dataframe=wandb_df.reset_index())
+        run.log({f"simulation_metric_table": table})
 
 
 if __name__ == "__main__":

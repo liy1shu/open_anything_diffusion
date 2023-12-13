@@ -77,6 +77,29 @@ def main(cfg):
         n_proc=cfg.resources.n_proc_per_worker,
         seed=cfg.seed,
         trajectory_len=trajectory_len,  # Only used when training trajectory model
+        special_req="half-half"
+        # # TODO: only for toy training!!!!!
+        # toy_dataset = {
+        #     "id": "door-1",
+        #     "train-train": ["8994", "9035"],
+        #     "train-test": ["8994", "9035"],
+        #     "test": ["8867"],
+        #     # "train-train": ["8867"],
+        #     # "train-test": ["8867"],
+        #     # "test": ["8867"],
+        # }
+        # toy_dataset = {
+        #     "id": "door-full",
+        #     "train-train": ["8867", "8877", "8893", "8897", "8903", "8919", "8930", "8936", "8961", "8983", "8994", "8997", "9003", "9016", "9032", "9035", "9041", "9065", "9070", "9107", "9117", "9127", "9128", "9148", "9164", "9168", "9263", "9277", "9280", "9281", "9288", "9386", "9388", "9393", "9410"],
+        #     "train-test": ["8994"],
+        #     "test": ["9035"],
+        # }
+        # toy_dataset = {
+        #     "id": "door-full-new",
+        #     "train-train": ["8877", "8893", "8897", "8903", "8919", "8930", "8936", "8961", "8997", "9016", "9032", "9035", "9041", "9065", "9070", "9107", "9117", "9127", "9128", "9148", "9164", "9168", "9277", "9280", "9281", "9288", "9386", "9388", "9410"],
+        #     "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+        #     "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+        # }
     )
     train_loader = datamodule.train_dataloader()
     train_val_loader = datamodule.train_val_dataloader()
@@ -192,7 +215,7 @@ def main(cfg):
             ModelCheckpoint(
                 dirpath=cfg.lightning.checkpoint_dir,
                 filename="{epoch}-{step}-{val_loss:.2f}-weights-only",
-                monitor="val/flow_loss",
+                monitor="val/flow_loss" if cfg.model.name == "diffuser" else "val/loss",
                 mode="min",
                 save_weights_only=True,
             ),
@@ -219,7 +242,8 @@ def main(cfg):
     # Train the model.
     ######################################################################
 
-    trainer.fit(model, train_loader, [train_val_loader, val_loader, unseen_loader])
+    # trainer.fit(model, train_loader, [val_loader, train_val_loader, unseen_loader], ckpt_path='/home/yishu/open_anything_diffusion/logs/train_trajectory/2023-09-11/19-01-57/checkpoints/last.ckpt')
+    trainer.fit(model, train_loader, [val_loader, train_val_loader, unseen_loader])
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ import wandb
 
 from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
 from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
-from open_anything_diffusion.metrics.trajectory import flow_metrics
+from open_anything_diffusion.metrics.trajectory import artflownet_loss, flow_metrics
 from open_anything_diffusion.models.flow_predictor import FlowPredictorInferenceModule
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowTrajectoryInferenceModule,
@@ -58,11 +58,51 @@ def main(cfg):
     # Create FlowBot dataset
     datamodule = data_module_class[cfg.dataset.name](
         root=cfg.dataset.data_dir,
-        batch_size=cfg.inference.batch_size,
+        # batch_size=cfg.inference.batch_size,
+        batch_size=1,  # TODO: FOR DOOR dataset
         num_workers=cfg.resources.num_workers,
         n_proc=cfg.resources.n_proc_per_worker,
         seed=cfg.seed,
+        # trajectory_len=trajectory_len,  # Only used when inference trajectory model
         trajectory_len=trajectory_len,  # Only used when inference trajectory model
+        # trajectory_len=15,  # mpc
+        special_req="fully-closed",
+        # Door dataset # TODO: FOR DOOR dataset
+        toy_dataset={
+            "id": "door-full-new",
+            "train-train": [
+                "8877",
+                "8893",
+                "8897",
+                "8903",
+                "8919",
+                "8930",
+                "8961",
+                "8997",
+                "9016",
+                "9032",
+                "9035",
+                "9041",
+                "9065",
+                "9070",
+                "9107",
+                "9117",
+                "9127",
+                "9128",
+                "9148",
+                "9164",
+                "9168",
+                "9277",
+                "9280",
+                "9281",
+                "9288",
+                "9386",
+                "9388",
+                "9410",
+            ],
+            "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+            "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+        },
     )
 
     ######################################################################
@@ -169,13 +209,21 @@ def main(cfg):
     dataloaders = [
         (datamodule.train_val_dataloader(), "train"),
         (datamodule.val_dataloader(), "val"),
-        (datamodule.unseen_dataloader(), "test"),
+        # (datamodule.unseen_dataloader(), "test"),   # TODO: FOR DOOR dataset
     ]
 
     all_objs = (
         rpd.UMPNET_TRAIN_TRAIN_OBJS + rpd.UMPNET_TRAIN_TEST_OBJS + rpd.UMPNET_TEST_OBJS
     )
     id_to_obj_class = {obj_id: obj_class for obj_id, obj_class in all_objs}
+
+    all_directions = []
+    all_metrics = {
+        "flow_loss": [],
+        "rmse": [],
+        "cos_dist": [],
+        "mag_error": [],
+    }
 
     for loader, name in dataloaders:
         metrics = []
@@ -196,12 +244,22 @@ def main(cfg):
                     f_target = data.flow
                     f_target = f_target.reshape(f_target.shape[0], -1, 3)
 
+                n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(f_pred.device)  # type: ignore
+                flow_loss = artflownet_loss(f_pred, f_target, n_nodes)
                 rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
+
+                all_metrics["flow_loss"].append(flow_loss)
+                all_metrics["rmse"].append(rmse)
+                all_metrics["cos_dist"].append(cos_dist)
+                all_metrics["mag_error"].append(mag_error)
+
+                all_directions.append(cos_dist)
 
                 metrics.append(
                     {
                         "id": data.id,
-                        "obj_class": id_to_obj_class[data.id],
+                        # "obj_class": id_to_obj_class[data.id],  # TODO: FOR DOOR dataset
+                        "obj_class": "door",
                         "metrics": {
                             "rmse": rmse.cpu().item(),
                             "cos_dist": cos_dist.cpu().item(),
@@ -238,6 +296,60 @@ def main(cfg):
         # Log the metrics + table to wandb.
         table = wandb.Table(dataframe=df.reset_index())
         run.log({f"{name}_metric_table": table})
+
+    # Scatter plot
+    ys = [d.item() for d in all_directions]
+    xs = [
+        "8877",
+        "8893",
+        "8897",
+        "8903",
+        "8919",
+        "8930",
+        "8961",
+        "8997",
+        "9016",
+        "9032",
+        "9035",
+        "9041",
+        "9065",
+        "9070",
+        "9107",
+        "9117",
+        "9127",
+        "9128",
+        "9148",
+        "9164",
+        "9168",
+        "9277",
+        "9280",
+        "9281",
+        "9288",
+        "9386",
+        "9388",
+        "9410",
+        "8867",
+        "8983",
+        "8994",
+        "9003",
+        "9263",
+        "9393",
+    ]
+    breakpoint()
+    colors = sorted(["red", "blue", "green"]) * len(xs)
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure()
+    ax = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+    ax.axhline(y=0)
+    plt.scatter(xs, ys, s=5, c=colors[: len(ys)])
+    plt.xticks(rotation=90)
+
+    plt.savefig("./half_cos_stats.jpeg")
+
+    # All metrics
+    for name in all_metrics.keys():
+        print(f"{name}: {sum(all_metrics[name]) / len(all_metrics[name])}")
 
 
 if __name__ == "__main__":

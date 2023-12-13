@@ -1,21 +1,14 @@
 # Diffuser evaluation scripts
-from pathlib import Path
 
 import hydra
 import lightning as L
 import omegaconf
-import pandas as pd
 import rpad.partnet_mobility_utils.dataset as rpd
 import rpad.pyg.nets.pointnet2 as pnp
 import torch
-import tqdm
 import wandb
 
 from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
-from open_anything_diffusion.metrics.trajectory import (
-    flow_metrics,
-    normalize_trajectory,
-)
 from open_anything_diffusion.models.flow_trajectory_diffuser import (
     FlowTrajectoryDiffuserInferenceModule,
 )
@@ -54,13 +47,22 @@ def main(cfg):
     ######################################################################
     trajectory_len = cfg.inference.trajectory_len
     # Create FlowBot dataset
-    datamodule = data_module_class[cfg.dataset.name](
-        root=cfg.dataset.data_dir,
-        batch_size=cfg.inference.batch_size,
-        num_workers=cfg.resources.num_workers,
-        n_proc=cfg.resources.n_proc_per_worker,
-        seed=cfg.seed,
-        trajectory_len=trajectory_len,  # Only used when inference trajectory model
+    datamodule = FlowTrajectoryDataModule(
+        root="/home/yishu/datasets/partnet-mobility",
+        batch_size=1,
+        num_workers=30,
+        n_proc=2,
+        seed=42,
+        trajectory_len=1,  # Only used when training trajectory model
+        # toy_dataset = {
+        #     "id": "door-1",
+        #     "train-train": ["8994", "9035"],
+        #     "train-test": ["8994", "9035"],
+        #     "test": ["8867"],
+        #     # "train-train": ["8867"],
+        #     # "train-test": ["8867"],
+        #     # "test": ["8867"],
+        # }
         toy_dataset={
             "id": "door-full-new",
             "train-train": [
@@ -93,66 +95,8 @@ def main(cfg):
                 "9388",
                 "9410",
             ],
-            "train-test": [
-                "8877",
-                "8893",
-                "8897",
-                "8903",
-                "8919",
-                "8930",
-                "8961",
-                "8997",
-                "9016",
-                "9032",
-                "9035",
-                "9041",
-                "9065",
-                "9070",
-                "9107",
-                "9117",
-                "9127",
-                "9128",
-                "9148",
-                "9164",
-                "9168",
-                "9277",
-                "9280",
-                "9281",
-                "9288",
-                "9386",
-                "9388",
-                "9410",
-            ],
-            "test": [
-                "8877",
-                "8893",
-                "8897",
-                "8903",
-                "8919",
-                "8930",
-                "8961",
-                "8997",
-                "9016",
-                "9032",
-                "9035",
-                "9041",
-                "9065",
-                "9070",
-                "9107",
-                "9117",
-                "9127",
-                "9128",
-                "9148",
-                "9164",
-                "9168",
-                "9277",
-                "9280",
-                "9281",
-                "9288",
-                "9386",
-                "9388",
-                "9410",
-            ],
+            "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+            "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
         },
     )
 
@@ -244,12 +188,12 @@ def main(cfg):
     # If this is a different kind of downstream eval, chuck this block.
     ######################################################################
 
-    trainer = L.Trainer(
-        accelerator="gpu",
-        devices=cfg.resources.gpus,
-        precision="32-true",
-        logger=False,
-    )
+    # trainer = L.Trainer(
+    #     accelerator="gpu",
+    #     devices=cfg.resources.gpus,
+    #     precision="32-true",
+    #     logger=False,
+    # )
 
     ######################################################################
     # Run the model on the train/val/test sets.
@@ -261,84 +205,107 @@ def main(cfg):
     ######################################################################
 
     dataloaders = [
-        (datamodule.train_val_dataloader(), "train"),
-        (datamodule.val_dataloader(), "val"),
+        # (datamodule.train_val_dataloader(), "train"),
+        (datamodule.train_val_dataloader(bsz=1), "val"),
         (datamodule.unseen_dataloader(), "test"),
     ]
+
+    trial_time = 50
 
     all_objs = (
         rpd.UMPNET_TRAIN_TRAIN_OBJS + rpd.UMPNET_TRAIN_TEST_OBJS + rpd.UMPNET_TEST_OBJS
     )
     id_to_obj_class = {obj_id: obj_class for obj_id, obj_class in all_objs}
 
+    all_metrics = []
+    all_directions = []
+    sample_cnt = 0
     for loader, name in dataloaders:
-        metrics = []
-        outputs = trainer.predict(
-            model,
-            dataloaders=[loader],
+        sample_cnt += len(loader)
+
+        metrics, directions = model.predict_wta(
+            dataloader=loader, mode="delta", trial_times=trial_time
         )
+        print(f"{name} metric:")
+        print(metrics)
 
-        for batch, preds in zip(tqdm.tqdm(loader), outputs):
-            st = 0
-            for data in batch.to_data_list():
-                f_pred = preds[st : st + data.num_nodes]
-                f_pred = f_pred.reshape(f_pred.shape[0], -1, 3)
+        all_metrics.append(metrics)
+        all_directions += directions
 
-                # Ignore nan predictions for now...
-                if torch.isnan(f_pred).sum() != 0:
-                    continue
+    # Scatter plot
+    ys = [d.item() for d in all_directions]
+    xs = sorted(list(range(sample_cnt)) * trial_time)
+    xs = [f"{x}" for x in xs]
+    colors = sorted(["red", "blue", "green"] * trial_time) * sample_cnt
+    import matplotlib.pyplot as plt
 
-                f_ix = data.mask.bool()
-                if cfg.dataset.name == "trajectory":
-                    f_target = data.delta
-                else:
-                    f_target = data.flow
-                    f_target = f_target.reshape(f_target.shape[0], -1, 3)
+    plt.figure()
+    plt.scatter(xs, ys, s=5, c=colors[: len(xs)])
+    plt.savefig("./cos_stats.jpeg")
 
-                f_pred = normalize_trajectory(f_pred)
-                f_target = normalize_trajectory(f_target)
-                rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
+    # for batch, preds in zip(tqdm.tqdm(loader), outputs):
+    #     st = 0
+    #     for data in batch.to_data_list():
+    #         f_pred = preds[st : st + data.num_nodes]
+    #         f_pred = f_pred.reshape(f_pred.shape[0], -1, 3)
 
-                metrics.append(
-                    {
-                        "id": data.id,
-                        "obj_class": id_to_obj_class[data.id],
-                        "metrics": {
-                            "rmse": rmse.cpu().item(),
-                            "cos_dist": cos_dist.cpu().item(),
-                            "mag_error": mag_error.cpu().item(),
-                        },
-                    }
-                )
+    #         # Ignore nan predictions for now...
+    #         if torch.isnan(f_pred).sum() != 0:
+    #             continue
 
-                st += data.num_nodes
+    #         f_ix = data.mask.bool()
+    #         if cfg.dataset.name == "trajectory":
+    #             f_target = data.delta
+    #         else:
+    #             f_target = data.flow
+    #             f_target = f_target.reshape(f_target.shape[0], -1, 3)
 
-        rows = [
-            (
-                m["id"],
-                m["obj_class"],
-                m["metrics"]["rmse"],
-                m["metrics"]["cos_dist"],
-                m["metrics"]["mag_error"],
-            )
-            for m in metrics
-        ]
-        raw_df = pd.DataFrame(
-            rows, columns=["id", "category", "rmse", "cos_dist", "mag_error"]
-        )
-        df = raw_df.groupby("category").mean(numeric_only=True)
-        df.loc["unweighted_mean"] = raw_df.mean(numeric_only=True)
-        df.loc["class_mean"] = df.mean()
+    #         f_pred = normalize_trajectory(f_pred)
+    #         f_target = normalize_trajectory(f_target)
+    #         rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
 
-        out_file = Path(cfg.log_dir) / f"{cfg.dataset.name}_{trajectory_len}_{name}.csv"
-        print(out_file)
-        # if out_file.exists():
-        #     raise ValueError(f"{out_file} already exists...")
-        df.to_csv(out_file, float_format="%.3f")
+    #         metrics.append(
+    #             {
+    #                 "id": data.id,
+    #                 "obj_class": id_to_obj_class[data.id],
+    #                 "metrics": {
+    #                     "rmse": rmse.cpu().item(),
+    #                     "cos_dist": cos_dist.cpu().item(),
+    #                     "mag_error": mag_error.cpu().item(),
+    #                 },
+    #             }
+    #         )
 
-        # Log the metrics + table to wandb.
-        table = wandb.Table(dataframe=df.reset_index())
-        run.log({f"{name}_metric_table": table})
+    #         st += data.num_nodes
+
+    # rows = [
+    #     (
+    #         m["id"],
+    #         m["obj_class"],
+    #         m["metrics"]["rmse"],
+    #         m["metrics"]["cos_dist"],
+    #         m["metrics"]["mag_error"],
+    #     )
+    #     for m in metrics
+    # ]
+    # raw_df = pd.DataFrame(
+    #     rows, columns=["id", "category", "rmse", "cos_dist", "mag_error"]
+    # )
+    # df = raw_df.groupby("category").mean(numeric_only=True)
+    # df.loc["unweighted_mean"] = raw_df.mean(numeric_only=True)
+    # df.loc["class_mean"] = df.mean()
+
+    # out_file = Path(cfg.log_dir) / f"{cfg.dataset.name}_{trajectory_len}_{name}.csv"
+    # print(out_file)
+    # # if out_file.exists():
+    # #     raise ValueError(f"{out_file} already exists...")
+    # df.to_csv(out_file, float_format="%.3f")
+
+    # # Log the metrics + table to wandb.
+    # table = wandb.Table(dataframe=df.reset_index())
+    # run.log({f"{name}_metric_table": table})
+
+    breakpoint()
 
 
 if __name__ == "__main__":
