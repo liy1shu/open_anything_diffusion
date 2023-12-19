@@ -5,11 +5,11 @@ import os
 import numpy as np
 import rpad.pyg.nets.pointnet2 as pnp
 import torch
+from rpad.partnet_mobility_utils.data import PMObject
 
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowSimulationInferenceModule,
 )
-from rpad.partnet_mobility_utils.data import PMObject
 from open_anything_diffusion.simulations.suction import (  # compute_flow,
     GTFlowModel,
     GTTrajectoryModel,
@@ -18,8 +18,11 @@ from open_anything_diffusion.simulations.suction import (  # compute_flow,
 )
 
 
-def trial_flow(obj_id="41083", gui=False):
-    pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
+def trial_flow(
+    obj_id="41083",
+    gui=False,
+    pm_dir: str = os.path.expanduser("~/datasets/partnet-mobility/raw"),
+):
     env = PMSuctionSim(obj_id, pm_dir, gui=gui)
     raw_data = PMObject(os.path.join(pm_dir, obj_id))
 
