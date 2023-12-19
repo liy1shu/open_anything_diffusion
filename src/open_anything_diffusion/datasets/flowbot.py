@@ -41,6 +41,25 @@ class FlowBotDataModule(L.LightningDataModule):
             seed=seed,
         )
 
+        self.train_val_dset = CachedByKeyDataset(
+            dset_cls=Flowbot3DPyGDataset,
+            dset_kwargs=dict(
+                root=os.path.join(root, "raw"),
+                split="umpnet-train-train",
+                randomize_camera=randomize_camera,
+            ),
+            data_keys=rpd.UMPNET_TRAIN_TRAIN_OBJ_IDS,
+            root=root,
+            processed_dirname=Flowbot3DPyGDataset.get_processed_dir(
+                True,
+                randomize_camera,
+            ),
+            n_repeat=1,
+            n_workers=num_workers,
+            n_proc_per_worker=n_proc,
+            seed=seed,
+        )
+
         self.val_dset = CachedByKeyDataset(
             dset_cls=Flowbot3DPyGDataset,
             dset_kwargs=dict(
@@ -84,6 +103,12 @@ class FlowBotDataModule(L.LightningDataModule):
             L.seed_everything(self.seed)
         return tgl.DataLoader(
             self.train_dset, self.batch_size, shuffle=shuffle, num_workers=0
+        )
+
+    def train_val_dataloader(self):
+        L.seed_everything(self.seed)
+        return tgl.DataLoader(
+            self.train_val_dset, self.batch_size, shuffle=False, num_workers=0
         )
 
     def val_dataloader(self):

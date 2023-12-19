@@ -1,7 +1,5 @@
-import os
 from pathlib import Path
 
-os.environ["WANDB_SILENT"] = "true"
 import hydra
 import lightning as L
 import omegaconf
@@ -11,11 +9,25 @@ import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import tqdm
 import wandb
-from flowbot3d.models.artflownet import flow_metrics
 
+from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
 from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
 from open_anything_diffusion.models.flow_predictor import FlowPredictorInferenceModule
+from open_anything_diffusion.models.flow_trajectory_predictor import (
+    FlowTrajectoryInferenceModule,
+    flow_metrics,
+)
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
+
+data_module_class = {
+    "flowbot": FlowBotDataModule,
+    "trajectory": FlowTrajectoryDataModule,
+}
+
+inference_module_class = {
+    "flowbot": FlowPredictorInferenceModule,
+    "trajectory": FlowTrajectoryInferenceModule,
+}
 
 
 @torch.no_grad()
@@ -40,14 +52,18 @@ def main(cfg):
     # Should be the same one as in training, but we're gonna use val+test
     # dataloaders.
     ######################################################################
-    datamodule = FlowBotDataModule(
+    trajectory_len = (
+        1 if cfg.dataset.name == "flowbot" else cfg.inference.trajectory_len
+    )
+    # Create FlowBot dataset
+    datamodule = data_module_class[cfg.dataset.name](
         root=cfg.dataset.data_dir,
         batch_size=cfg.inference.batch_size,
         num_workers=cfg.resources.num_workers,
-        n_proc=cfg.inference.n_proc,  # Add n_proc
+        n_proc=cfg.resources.n_proc_per_worker,
+        seed=cfg.seed,
+        trajectory_len=trajectory_len,  # Only used when inference trajectory model
     )
-    train_loader = datamodule.train_dataloader()
-    val_loader = datamodule.val_dataloader()
 
     ######################################################################
     # Set up logging in WandB.
@@ -87,7 +103,9 @@ def main(cfg):
 
     mask_channel = 1 if cfg.inference.mask_input_channel else 0
     network = pnp.PN2Dense(
-        in_channels=mask_channel, out_channels=3, p=pnp.PN2DenseParams()
+        in_channels=mask_channel,
+        out_channels=3 * trajectory_len,
+        p=pnp.PN2DenseParams(),
     )
 
     # Get the checkpoint file. If it's a wandb reference, download.
@@ -119,7 +137,9 @@ def main(cfg):
     # environment, for instance.
     ######################################################################
 
-    model = FlowPredictorInferenceModule(network, inference_config=cfg.inference)
+    model = inference_module_class[cfg.dataset.name](
+        network, inference_config=cfg.inference
+    )
 
     ######################################################################
     # Create the trainer.
@@ -147,7 +167,7 @@ def main(cfg):
     ######################################################################
 
     dataloaders = [
-        (datamodule.train_dataloader(shuffle=False), "train"),
+        (datamodule.train_val_dataloader(), "train"),
         (datamodule.val_dataloader(), "val"),
         (datamodule.unseen_dataloader(), "test"),
     ]
@@ -168,8 +188,13 @@ def main(cfg):
             st = 0
             for data in batch.to_data_list():
                 f_pred = preds[st : st + data.num_nodes]
+                f_pred = f_pred.reshape(f_pred.shape[0], -1, 3)
                 f_ix = data.mask.bool()
-                f_target = data.flow
+                if cfg.dataset.name == "trajectory":
+                    f_target = data.delta
+                else:
+                    f_target = data.flow
+                    f_target = f_target.reshape(f_target.shape[0], -1, 3)
 
                 rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
 
@@ -204,13 +229,14 @@ def main(cfg):
         df.loc["unweighted_mean"] = raw_df.mean(numeric_only=True)
         df.loc["class_mean"] = df.mean()
 
-        out_file = Path(cfg.metric_output_dir) / f"{cfg.dataset.name}_{name}.csv"
-        if out_file.exists():
-            raise ValueError(f"{out_file} already exists...")
+        out_file = Path(cfg.log_dir) / f"{cfg.dataset.name}_{trajectory_len}_{name}.csv"
+        print(out_file)
+        # if out_file.exists():
+        #     raise ValueError(f"{out_file} already exists...")
         df.to_csv(out_file, float_format="%.3f")
 
         # Log the metrics + table to wandb.
-        table = wandb.Table(dataframe=df)
+        table = wandb.Table(dataframe=df.reset_index())
         run.log({f"{name}_metric_table": table})
 
 

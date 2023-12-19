@@ -7,6 +7,7 @@ import numpy as np
 import pybullet as p
 import torch
 from flowbot3d.datasets.flow_dataset import compute_normalized_flow
+from flowbot3d.grasping.agents.flowbot3d import FlowNetAnimation
 from rpad.partnet_mobility_utils.data import PMObject
 from rpad.partnet_mobility_utils.render.pybullet import PMRenderEnv
 from rpad.pybullet_envs.suction_gripper import FloatingSuctionGripper
@@ -258,8 +259,11 @@ class PMSuctionSim:
 @dataclass
 class TrialResult:
     success: bool
+    contact: bool
+    assertion: bool
     init_angle: float
     final_angle: float
+    now_angle: float
 
     # UMPNet metric goes here
     metric: float
@@ -296,6 +300,11 @@ class GTFlowModel:
 
         return torch.from_numpy(normalized_flow)
 
+    def get_movable_mask(self, obs) -> torch.Tensor:
+        flow = self(obs)
+        mask = (~(np.isclose(flow, 0.0)).all(axis=-1)).astype(np.bool_)
+        return mask
+
 
 class GTTrajectoryModel:
     def __init__(self, raw_data, env, traj_len=20):
@@ -319,14 +328,13 @@ class GTTrajectoryModel:
         trajectory, _ = compute_flow_trajectory(
             self.traj_len,
             P_world,
-            env.T_world_base,
+            env.render_env.T_world_base,
             current_jas,
             pc_seg,
-            env.link_name_to_index,
+            env.render_env.link_name_to_index,
             raw_data,
             "all",
         )
-
         return torch.from_numpy(trajectory)
 
 
@@ -335,16 +343,25 @@ def run_trial(
     raw_data: PMObject,
     target_link: str,
     model,
+    gt_model=None,  # When we use mask_input_channel=True, this is the mask generator
     n_steps: int = 30,
     n_pts: int = 1200,
-    traj_len: int = 1,  # By default, only move one step
+    save_name: str = "unknown",
+    website: bool = False,
 ) -> TrialResult:
+    if website:
+        # Flow animation
+        animation = FlowNetAnimation()
+
     # First, reset the environment.
     env.reset()
 
     # Sometimes doors collide with themselves. It's dumb.
-    # if raw_data.category == "Door" and raw_data.semantics.by_name(target_link).type == "hinge":
-    #     env.set_joint_state(target_link, 0.2)
+    if (
+        raw_data.category == "Door"
+        and raw_data.semantics.by_name(target_link).type == "hinge"
+    ):
+        env.set_joint_state(target_link, 0.2)
 
     if raw_data.semantics.by_name(target_link).type == "hinge":
         env.set_joint_state(target_link, 0.05)
@@ -353,34 +370,76 @@ def run_trial(
     pc_obs = env.render(filter_nonobj_pts=True, n_pts=n_pts)
     rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
 
-    pred_trajectory = model(copy.deepcopy(pc_obs))
-
+    # breakpoint()
+    if gt_model is None:  # GT Flow model
+        pred_trajectory = model(copy.deepcopy(pc_obs))
+    else:
+        movable_mask = gt_model.get_movable_mask(pc_obs)
+        pred_trajectory = model(copy.deepcopy(pc_obs), movable_mask)
+    # pred_trajectory = model(copy.deepcopy(pc_obs))
     pred_trajectory = pred_trajectory.reshape(
         pred_trajectory.shape[0], -1, pred_trajectory.shape[-1]
     )
+    traj_len = pred_trajectory.shape[1]  # Trajectory length
+    print(f"Predicting {traj_len} length trajectories.")
     pred_flow = pred_trajectory[:, 0, :]
 
     # flow_fig(torch.from_numpy(P_world), pred_flow, sizeref=0.1, use_v2=True).show()
     # breakpoint()
 
     # Filter down just the points on the target link.
+
     link_ixs = pc_seg == env.render_env.link_name_to_index[target_link]
-    assert link_ixs.any()
+    # assert link_ixs.any()
+    if not link_ixs.any():
+        p.disconnect(physicsClientId=env.render_env.client_id)
+        return None, TrialResult(
+            success=False,
+            assertion=False,
+            contact=False,
+            init_angle=0,
+            final_angle=0,
+            now_angle=0,
+            metric=0,
+        )
+
+    if website:
+        # Record simulation video
+        log_id = p.startStateLogging(
+            p.STATE_LOGGING_VIDEO_MP4,
+            f"./logs/simu_eval/video_assets/{save_name}.mp4",
+        )
 
     # The attachment point is the point with the highest flow.
     best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
     best_flow = pred_flow[link_ixs][best_flow_ix]
     best_point = P_world[link_ixs][best_flow_ix]
+    # breakpoint()
 
     # Teleport to an approach pose, approach, the object and grasp.
     contact = env.teleport_and_approach(best_point, best_flow)
 
     if not contact:
-        print("No contact detected")
-        return TrialResult(
+        if website:
+            segmented_flow = np.zeros_like(pred_flow)
+            segmented_flow[link_ixs] = pred_flow[link_ixs]
+            animation.add_trace(
+                torch.as_tensor(P_world),
+                torch.as_tensor([P_world]),
+                torch.as_tensor([segmented_flow]),
+                "red",
+            )
+            p.stopStateLogging(log_id)
+        print("No contact!")
+        p.disconnect(physicsClientId=env.render_env.client_id)
+        animation_results = None if not website else animation.animate()
+        return animation_results, TrialResult(
             success=False,
+            assertion=True,
+            contact=False,
             init_angle=0,
             final_angle=0,
+            now_angle=0,
             metric=0,
         )
 
@@ -389,26 +448,65 @@ def run_trial(
     pc_obs = env.render(filter_nonobj_pts=True, n_pts=n_pts)
     success = False
 
-    for i in range(n_steps):
+    global_step = 0
+    # for i in range(n_steps):
+    while global_step < n_steps:
         # Predict the flow on the observation.
-        pred_trajectory = model(pc_obs)
+        if gt_model is None:  # GT Flow model
+            pred_trajectory = model(copy.deepcopy(pc_obs))
+        else:
+            movable_mask = gt_model.get_movable_mask(pc_obs)
+            # breakpoint()
+            pred_trajectory = model(pc_obs, movable_mask)
+            # pred_trajectory = model(pc_obs)
         pred_trajectory = pred_trajectory.reshape(
             pred_trajectory.shape[0], -1, pred_trajectory.shape[-1]
         )
 
-        for traj_step in range(traj_len):
+        for traj_step in range(pred_trajectory.shape[1]):
+            if global_step == n_steps:
+                break
+            global_step += 1
             pred_flow = pred_trajectory[:, traj_step, :]
             rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
 
             # Filter down just the points on the target link.
+            # breakpoint()
             link_ixs = pc_seg == env.render_env.link_name_to_index[target_link]
-            assert link_ixs.any()
+            # assert link_ixs.any()
+            if not link_ixs.any():
+                if website:
+                    p.stopStateLogging(log_id)
+                p.disconnect(physicsClientId=env.render_env.client_id)
+                return None, TrialResult(
+                    assertion=False,
+                    success=False,
+                    contact=False,
+                    init_angle=0,
+                    final_angle=0,
+                    now_angle=0,
+                    metric=0,
+                )
+
+            if website:
+                # Add pcd to flow animation
+                segmented_flow = np.zeros_like(pred_flow)
+                segmented_flow[link_ixs] = pred_flow[link_ixs]
+                animation.add_trace(
+                    torch.as_tensor(P_world),
+                    torch.as_tensor([P_world]),
+                    torch.as_tensor([segmented_flow]),
+                    "red",
+                )
 
             # Get the best direction.
             best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
             best_flow = pred_flow[link_ixs][best_flow_ix]
 
             # Perform the pulling.
+            if best_flow.sum() == 0:
+                continue
+            # print(best_flow)
             env.pull(best_flow)
 
             success = env.detect_success(target_link)
@@ -418,14 +516,31 @@ def run_trial(
 
             pc_obs = env.render(filter_nonobj_pts=True, n_pts=1200)
 
-    init_angle = 0.0
-    final_angle = 0.0
-    upper_bound = 0.0
-    metric = 0.0
+        if success:
+            break
 
-    return TrialResult(
+    # calculate the metrics
+    info = p.getJointInfo(
+        env.render_env.obj_id,
+        env.render_env.link_name_to_index[target_link],
+        env.render_env.client_id,
+    )
+    init_angle, target_angle = info[8], info[9]
+    curr_pos = env.get_joint_value(target_link)
+    metric = (curr_pos - init_angle) / (target_angle - init_angle)
+    metric = min(metric, 1)
+
+    if website:
+        p.stopStateLogging(log_id)
+
+    p.disconnect(physicsClientId=env.render_env.client_id)
+    animation_results = None if not website else animation.animate()
+    return animation_results, TrialResult(  # Save the flow visuals
         success=success,
+        contact=True,
+        assertion=True,
         init_angle=init_angle,
-        final_angle=final_angle,
+        final_angle=target_angle,
+        now_angle=curr_pos,
         metric=metric,
     )

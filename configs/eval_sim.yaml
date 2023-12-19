@@ -1,4 +1,4 @@
-mode: eval
+mode: eval_sim
 
 # This is somewhat arbitrary.
 job_type: ${mode}_${dataset.name}
@@ -20,6 +20,8 @@ defaults:
   - _self_
 
 seed: 42
+gui: False
+website: False
 
 # This is the checkpoint that we're evaluating. You can change this to whatever you need,
 # like if you want multiple checkpoints simultaneously, etc.
@@ -47,7 +49,7 @@ wandb:
   # group: ???
   # group: flowbot  # flowbot
   # group: traj1  # traj 1 experiment-sb009k1f
-  group: traj7  # traj 5 experiment-y2kdp0hq
-  # group: traj1
+  # group: traj20  # traj 5 experiment-y2kdp0hq
+  group: traj7
 
 metric_output_dir: './logs'

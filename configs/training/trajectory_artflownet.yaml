@@ -2,6 +2,6 @@ lr: 1e-3
 batch_size: 64
 epochs: 100
 check_val_every_n_epoch: 1
-trajectory_len: 15
+trajectory_len: 7
 mode: "delta"
 mask_input_channel: True

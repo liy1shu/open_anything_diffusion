@@ -386,3 +386,6 @@ logs/
 
 # Results
 results/
+notebooks/artifacts
+notebooks/csv
+notebooks/*.csv
