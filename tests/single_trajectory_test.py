@@ -3,6 +3,7 @@ import copy
 from typing import Any
 
 import lightning as L
+import pytest
 import rpad.pyg.nets.pointnet2 as pnp
 import torch
 from lightning.pytorch.utilities.seed import isolate_rng
