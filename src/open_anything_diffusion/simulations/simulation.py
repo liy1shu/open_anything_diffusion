@@ -25,8 +25,8 @@ def trial_flow(
     available_joints=None,
     gui=False,
     website=False,
+    pm_dir=os.path.expanduser("~/datasets/partnet-mobility/raw"),
 ):
-    pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     # env = PMSuctionSim(obj_id, pm_dir, gui=gui)
     raw_data = PMObject(os.path.join(pm_dir, obj_id))
 

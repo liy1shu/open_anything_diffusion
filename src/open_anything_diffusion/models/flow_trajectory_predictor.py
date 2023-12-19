@@ -205,12 +205,14 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
         return {"artflownet_plot": fig}
 
 
-# Implement this for trajectory eval
-class FlowTrajectoryInferenceModule(L.LightningModule):
-    def __init__(self, network, inference_config) -> None:
+class FlowPredictorInferenceModule(L.LightningModule):
+    def __init__(self, network, inference_config=None) -> None:
         super().__init__()
         self.network = network
-        self.mask_input_channel = inference_config.mask_input_channel
+        if inference_config is None:
+            self.mask_input_channel = True  # default
+        else:
+            self.mask_input_channel = inference_config.mask_input_channel
 
     def forward(self, data) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.

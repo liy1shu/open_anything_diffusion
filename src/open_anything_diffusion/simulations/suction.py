@@ -1,19 +1,16 @@
 import copy
-import os
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
 import pybullet as p
-import pybullet_data
 import torch
 from flowbot3d.datasets.flow_dataset import compute_normalized_flow
 from flowbot3d.grasping.agents.flowbot3d import FlowNetAnimation
 from rpad.partnet_mobility_utils.data import PMObject
+from rpad.partnet_mobility_utils.render.pybullet import PMRenderEnv
 from rpad.pybullet_envs.suction_gripper import FloatingSuctionGripper
-from rpad.pybullet_libs.camera import Camera
-from rpad.pybullet_libs.utils import get_obj_z_offset, isnotebook, suppress_stdout
 from scipy.spatial.transform import Rotation as R
 
 from open_anything_diffusion.datasets.flow_trajectory_dataset import (
@@ -23,139 +20,68 @@ from open_anything_diffusion.datasets.flow_trajectory_dataset import (
 
 class PMSuctionSim:
     def __init__(self, obj_id: str, dataset_path: str, gui: bool = False):
-        self.client_id = p.connect(p.GUI if gui else p.DIRECT)
+        self.render_env = PMRenderEnv(obj_id=obj_id, dataset_path=dataset_path, gui=gui)
         self.gui = gui
-        # Add in a plane.
-        p.resetDebugVisualizerCamera(
-            cameraDistance=1.2,
-            cameraYaw=-90,
-            cameraPitch=-30,
-            cameraTargetPosition=[-3, 0, 1.2],
-            physicsClientId=self.client_id,
-        )
-
-        p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        # self.plane_id = p.loadURDF("plane.urdf", physicsClientId=self.client_id)
-
-        # Add in gravity.
-        p.setGravity(0, 0, 0, self.client_id)
-
-        # Add in the object.
-        self.obj_id_str = obj_id
-        obj_urdf = os.path.join(dataset_path, obj_id, "mobility.urdf")
-        if isnotebook() or "PYTEST_CURRENT_TEST" in os.environ:
-            self.obj_id = p.loadURDF(
-                obj_urdf,
-                useFixedBase=True,
-                # flags=p.URDF_MAINTAIN_LINK_ORDER,
-                physicsClientId=self.client_id,
-            )
-
-        else:
-            with suppress_stdout():
-                self.obj_id = p.loadURDF(
-                    obj_urdf,
-                    useFixedBase=True,
-                    # flags=p.URDF_MAINTAIN_LINK_ORDER,
-                    physicsClientId=self.client_id,
-                )
-        # plugin = p.loadPlugin(egl.get_filename(), "_eglRendererPlugin", self.client_id)
-        # p.configureDebugVisualizer(
-        #     p.COV_ENABLE_RENDERING, 0, physicsClientId=self.client_id
-        # )
-        # p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0, physicsClientId=self.client_id)
-
-        # The object isn't placed at the bottom of the scene.
-        self.minz = get_obj_z_offset(self.obj_id, self.client_id)
-        p.resetBasePositionAndOrientation(
-            self.obj_id,
-            posObj=[0, 0, -self.minz],
-            ornObj=[0, 0, 0, 1],
-            physicsClientId=self.client_id,
-        )
-        self.T_world_base = np.eye(4)
-        self.T_world_base[2, 3] = -self.minz
-
-        # Add in the robot.
-        pos, orient = [-1, 0, 1], p.getQuaternionFromEuler([0, np.pi / 2, 0])
-        # self.gripper = FloatingSuctionGripper(self.client_id, self.obj_id)
-        self.gripper = FloatingSuctionGripper(self.client_id)
+        self.gripper = FloatingSuctionGripper(self.render_env.client_id)
         self.gripper.set_pose(
             [-1, 0.6, 0.8], p.getQuaternionFromEuler([0, np.pi / 2, 0])
         )
-        # self.gripper.activate(self.obj_id)
 
-        self.camera = Camera(pos=[-3, 0, 1.2], znear=0.01, zfar=10)
-        # self.new_camera = NewCamera(pos=[-3, 0, 1.2], znear=0.01, zfar=10)
+    # def run_demo(self):
+    #     while True:
+    #         self.gripper.set_velocity([0.4, 0, 0.0], [0, 0, 0])
+    #         for i in range(10):
+    #             p.stepSimulation(self.render_env.client_id)
+    #             time.sleep(1 / 240.0)
+    #         contact = self.gripper.detect_contact()
+    #         if contact:
+    #             break
 
-        # From https://pybullet.org/Bullet/phpBB3/viewtopic.php?f=24&t=12728&p=42293&hilit=linkIndex#p42293
-        self.link_name_to_index = {
-            p.getBodyInfo(self.obj_id, physicsClientId=self.client_id)[0].decode(
-                "UTF-8"
-            ): -1,
-        }
+    #     print("stopping gripper")
 
-        for _id in range(p.getNumJoints(self.obj_id, physicsClientId=self.client_id)):
-            _name = p.getJointInfo(self.obj_id, _id, physicsClientId=self.client_id)[
-                12
-            ].decode("UTF-8")
-            self.link_name_to_index[_name] = _id
+    #     self.gripper.set_velocity([0.001, 0, 0.0], [0, 0, 0])
+    #     for i in range(10):
+    #         p.stepSimulation(self.render_env.client_id)
+    #         time.sleep(1 / 240.0)
+    #         contact = self.gripper.detect_contact()
+    #         print(contact)
 
-    def run_demo(self):
-        while True:
-            self.gripper.set_velocity([0.4, 0, 0.0], [0, 0, 0])
-            for i in range(10):
-                p.stepSimulation(self.client_id)
-                time.sleep(1 / 240.0)
-            contact = self.gripper.detect_contact()
-            if contact:
-                break
+    #     print("starting activation")
 
-        print("stopping gripper")
+    #     self.gripper.activate()
 
-        self.gripper.set_velocity([0.001, 0, 0.0], [0, 0, 0])
-        for i in range(10):
-            p.stepSimulation(self.client_id)
-            time.sleep(1 / 240.0)
-            contact = self.gripper.detect_contact()
-            print(contact)
+    #     self.gripper.set_velocity([0, 0, 0.0], [0, 0, 0])
+    #     for i in range(100):
+    #         p.stepSimulation(self.render_env.client_id)
+    #         time.sleep(1 / 240.0)
 
-        print("starting activation")
+    #     # print("releasing")
+    #     # self.gripper.release()
 
-        self.gripper.activate()
+    #     print("starting motion")
+    #     for i in range(100):
+    #         p.stepSimulation(self.render_env.client_id)
+    #         time.sleep(1 / 240.0)
 
-        self.gripper.set_velocity([0, 0, 0.0], [0, 0, 0])
-        for i in range(100):
-            p.stepSimulation(self.client_id)
-            time.sleep(1 / 240.0)
+    #     for _ in range(20):
+    #         for i in range(100):
+    #             self.gripper.set_velocity([-0.4, 0, 0.0], [0, 0, 0])
+    #             self.gripper.apply_force([-500, 0, 0])
+    #             p.stepSimulation(self.render_env.client_id)
+    #             time.sleep(1 / 240.0)
 
-        # print("releasing")
-        # self.gripper.release()
+    #         for i in range(100):
+    #             self.gripper.set_velocity([-0.4, 0, 0.0], [0, 0, 0])
+    #             self.gripper.apply_force([-500, 0, 0])
+    #             p.stepSimulation(self.render_env.client_id)
+    #             time.sleep(1 / 240.0)
 
-        print("starting motion")
-        for i in range(100):
-            p.stepSimulation(self.client_id)
-            time.sleep(1 / 240.0)
+    #     print("releasing")
+    #     self.gripper.release()
 
-        for _ in range(20):
-            for i in range(100):
-                self.gripper.set_velocity([-0.4, 0, 0.0], [0, 0, 0])
-                self.gripper.apply_force([-500, 0, 0])
-                p.stepSimulation(self.client_id)
-                time.sleep(1 / 240.0)
-
-            for i in range(100):
-                self.gripper.set_velocity([-0.4, 0, 0.0], [0, 0, 0])
-                self.gripper.apply_force([-500, 0, 0])
-                p.stepSimulation(self.client_id)
-                time.sleep(1 / 240.0)
-
-        print("releasing")
-        self.gripper.release()
-
-        for i in range(1000):
-            p.stepSimulation(self.client_id)
-            time.sleep(1 / 240.0)
+    #     for i in range(1000):
+    #         p.stepSimulation(self.render_env.client_id)
+    #         time.sleep(1 / 240.0)
 
     def reset(self):
         pass
@@ -165,43 +91,28 @@ class PMSuctionSim:
 
     def set_joint_state(self, link_name: str, value: float):
         p.resetJointState(
-            self.obj_id, self.link_name_to_index[link_name], value, 0.0, self.client_id
+            self.render_env.obj_id,
+            self.render_env.link_name_to_index[link_name],
+            value,
+            0.0,
+            self.render_env.client_id,
         )
 
     def render(self, filter_nonobj_pts: bool = False, n_pts: Optional[int] = None):
-        # output = self.camera.render(self.client_id)
-        # rgb, depth, seg, P_cam, P_world, pc_seg, segmap = output
-        # NEW
-        output = self.camera.render(self.client_id)
-        # print(output)
-        rgb, depth, seg, P_cam, P_world, pc_seg, segmap = (
-            output["rgb"],
-            output["depth"],
-            output["seg"],
-            output["P_cam"],
-            output["P_world"],
-            output["pc_seg"],
-            output["segmap"],
-        )
-        # rgb, depth, seg, P_cam, P_world, pc_seg, segmap = self.camera.render(self.client_id)
-        # breakpoint()
+        output = self.render_env.render()
+        rgb, depth, seg, P_cam, P_world, pc_seg, segmap = output
 
         if filter_nonobj_pts:
             pc_seg_obj = np.ones_like(pc_seg) * -1
             for k, (body, link) in segmap.items():
-                if body == self.obj_id:
-                    # print(np.unique(pc_seg), k, body, link)
+                if body == self.render_env.obj_id:
                     ixs = pc_seg == k
-                    # print(link)
                     pc_seg_obj[ixs] = link
 
             is_obj = pc_seg_obj != -1
-            # breakpoint()
             P_cam = P_cam[is_obj]
             P_world = P_world[is_obj]
-            # pc_seg = pc_seg[is_obj]
             pc_seg = pc_seg_obj[is_obj]
-            # breakpoint()
         if n_pts is not None:
             perm = np.random.permutation(len(P_world))[:n_pts]
             P_cam = P_cam[perm]
@@ -240,17 +151,17 @@ class PMSuctionSim:
 
         self.gripper.set_pose(p_teleport, o_teleport)
 
-        contact = self.gripper.detect_contact(self.obj_id)
+        contact = self.gripper.detect_contact(self.render_env.obj_id)
         max_steps = 500
         curr_steps = 0
         self.gripper.set_velocity(-contact_vector * 0.4, [0, 0, 0])
         while not contact and curr_steps < max_steps:
-            p.stepSimulation(self.client_id)
+            p.stepSimulation(self.render_env.client_id)
             curr_steps += 1
             if self.gui:
                 time.sleep(1 / 240.0)
             if curr_steps % 10 == 0:
-                contact = self.gripper.detect_contact(self.obj_id)
+                contact = self.gripper.detect_contact(self.render_env.obj_id)
 
         if contact:
             print("contact detected")
@@ -258,7 +169,7 @@ class PMSuctionSim:
         return contact
 
     def attach(self):
-        self.gripper.activate(self.obj_id)
+        self.gripper.activate(self.render_env.obj_id)
 
     def pull(self, direction, n_steps: int = 100):
         direction = torch.as_tensor(direction)
@@ -266,73 +177,83 @@ class PMSuctionSim:
         # breakpoint()
         for _ in range(n_steps):
             self.gripper.set_velocity(direction * 0.4, [0, 0, 0])
-            p.stepSimulation(self.client_id)
+            p.stepSimulation(self.render_env.client_id)
             if self.gui:
                 time.sleep(1 / 240.0)
 
     def get_joint_value(self, target_link: str):
-        link_index = self.link_name_to_index[target_link]
-        state = p.getJointState(self.obj_id, link_index, self.client_id)
+        link_index = self.render_env.link_name_to_index[target_link]
+        state = p.getJointState(
+            self.render_env.obj_id, link_index, self.render_env.client_id
+        )
         joint_pos = state[0]
         return joint_pos
 
     def detect_success(self, target_link: str):
-        link_index = self.link_name_to_index[target_link]
-        info = p.getJointInfo(self.obj_id, link_index, self.client_id)
+        link_index = self.render_env.link_name_to_index[target_link]
+        info = p.getJointInfo(
+            self.render_env.obj_id, link_index, self.render_env.client_id
+        )
         lower, upper = info[8], info[9]
         curr_pos = self.get_joint_value(target_link)
 
-        sign = -1 if upper < 0 else 1
-        is_success = abs((upper - curr_pos) / (upper - lower)) < 0.1
-        print(
-            f"lower: {lower}, upper: {upper}, curr: {curr_pos}, metric:{abs((upper - curr_pos) / (upper - lower))}, is_success:{is_success}"
-        )
+        print(f"lower: {lower}, upper: {upper}, curr: {curr_pos}")
 
-        # return sign * (upper - curr_pos) < 0.001
-        return is_success  # 90%
+        sign = -1 if upper < 0 else 1
+        return sign * (upper - curr_pos) < 0.001
 
     def randomize_joints(self):
-        for i in range(p.getNumJoints(self.obj_id, self.client_id)):
-            jinfo = p.getJointInfo(self.obj_id, i, self.client_id)
+        for i in range(
+            p.getNumJoints(self.render_env.obj_id, self.render_env.client_id)
+        ):
+            jinfo = p.getJointInfo(self.render_env.obj_id, i, self.render_env.client_id)
             if jinfo[2] == p.JOINT_REVOLUTE or jinfo[2] == p.JOINT_PRISMATIC:
                 lower, upper = jinfo[8], jinfo[9]
                 angle = np.random.random() * (upper - lower) + lower
-                p.resetJointState(self.obj_id, i, angle, 0, self.client_id)
+                p.resetJointState(
+                    self.render_env.obj_id, i, angle, 0, self.render_env.client_id
+                )
 
     def randomize_specific_joints(self, joint_list):
-        for i in range(p.getNumJoints(self.obj_id, self.client_id)):
-            jinfo = p.getJointInfo(self.obj_id, i, self.client_id)
+        for i in range(
+            p.getNumJoints(self.render_env.obj_id, self.render_env.client_id)
+        ):
+            jinfo = p.getJointInfo(self.render_env.obj_id, i, self.render_env.client_id)
             if jinfo[12].decode("UTF-8") in joint_list:
                 lower, upper = jinfo[8], jinfo[9]
                 angle = np.random.random() * (upper - lower) + lower
-                p.resetJointState(self.obj_id, i, angle, 0, self.client_id)
+                p.resetJointState(
+                    self.render_env.obj_id, i, angle, 0, self.render_env.client_id
+                )
 
     def articulate_specific_joints(self, joint_list, amount):
-        for i in range(p.getNumJoints(self.obj_id, self.client_id)):
-            jinfo = p.getJointInfo(self.obj_id, i, self.client_id)
+        for i in range(
+            p.getNumJoints(self.render_env.obj_id, self.render_env.client_id)
+        ):
+            jinfo = p.getJointInfo(self.render_env.obj_id, i, self.render_env.client_id)
             if jinfo[12].decode("UTF-8") in joint_list:
                 lower, upper = jinfo[8], jinfo[9]
                 angle = amount * (upper - lower) + lower
-                p.resetJointState(self.obj_id, i, angle, 0, self.client_id)
+                p.resetJointState(
+                    self.render_env.obj_id, i, angle, 0, self.render_env.client_id
+                )
 
     def randomize_joints_openclose(self, joint_list):
         randind = np.random.choice([0, 1])
         # Close: 0
         # Open: 1
         self.close_or_open = randind
-        for i in range(p.getNumJoints(self.obj_id, self.client_id)):
-            jinfo = p.getJointInfo(self.obj_id, i, self.client_id)
+        for i in range(
+            p.getNumJoints(self.render_env.obj_id, self.render_env.client_id)
+        ):
+            jinfo = p.getJointInfo(self.render_env.obj_id, i, self.render_env.client_id)
             if jinfo[12].decode("UTF-8") in joint_list:
                 lower, upper = jinfo[8], jinfo[9]
                 angles = [lower, upper]
                 angle = angles[randind]
-                p.resetJointState(self.obj_id, i, angle, 0, self.client_id)
-
-    # def randomize_camera(self):
-    #     x, y, z, az, el = sample_az_ele(
-    #         np.sqrt(8), np.deg2rad(30), np.deg2rad(150), np.deg2rad(30), np.deg2rad(60)
-    #     )
-    #     self.camera.set_camera_position((x, y, z))
+                p.resetJointState(
+                    self.render_env.obj_id, i, angle, 0, self.render_env.client_id
+                )
 
 
 @dataclass
@@ -366,12 +287,13 @@ class GTFlowModel:
             chain = raw_data.obj.get_chain(linkname)
             for joint in chain:
                 current_jas[joint.name] = 0
+
         normalized_flow = compute_normalized_flow(
             P_world,
-            env.T_world_base,
+            env.render_env.T_world_base,
             current_jas,
             pc_seg,
-            env.link_name_to_index,
+            env.render_env.link_name_to_index,
             raw_data,
             "all",
         )
@@ -406,10 +328,10 @@ class GTTrajectoryModel:
         trajectory, _ = compute_flow_trajectory(
             self.traj_len,
             P_world,
-            env.T_world_base,
+            env.render_env.T_world_base,
             current_jas,
             pc_seg,
-            env.link_name_to_index,
+            env.render_env.link_name_to_index,
             raw_data,
             "all",
         )
@@ -467,10 +389,10 @@ def run_trial(
 
     # Filter down just the points on the target link.
 
-    link_ixs = pc_seg == env.link_name_to_index[target_link]
+    link_ixs = pc_seg == env.render_env.link_name_to_index[target_link]
     # assert link_ixs.any()
     if not link_ixs.any():
-        p.disconnect(physicsClientId=env.client_id)
+        p.disconnect(physicsClientId=env.render_env.client_id)
         return None, TrialResult(
             success=False,
             assertion=False,
@@ -509,7 +431,7 @@ def run_trial(
             )
             p.stopStateLogging(log_id)
         print("No contact!")
-        p.disconnect(physicsClientId=env.client_id)
+        p.disconnect(physicsClientId=env.render_env.client_id)
         animation_results = None if not website else animation.animate()
         return animation_results, TrialResult(
             success=False,
@@ -550,12 +472,12 @@ def run_trial(
 
             # Filter down just the points on the target link.
             # breakpoint()
-            link_ixs = pc_seg == env.link_name_to_index[target_link]
+            link_ixs = pc_seg == env.render_env.link_name_to_index[target_link]
             # assert link_ixs.any()
             if not link_ixs.any():
                 if website:
                     p.stopStateLogging(log_id)
-                p.disconnect(physicsClientId=env.client_id)
+                p.disconnect(physicsClientId=env.render_env.client_id)
                 return None, TrialResult(
                     assertion=False,
                     success=False,
@@ -599,7 +521,9 @@ def run_trial(
 
     # calculate the metrics
     info = p.getJointInfo(
-        env.obj_id, env.link_name_to_index[target_link], env.client_id
+        env.render_env.obj_id,
+        env.render_env.link_name_to_index[target_link],
+        env.render_env.client_id,
     )
     init_angle, target_angle = info[8], info[9]
     curr_pos = env.get_joint_value(target_link)
@@ -609,7 +533,7 @@ def run_trial(
     if website:
         p.stopStateLogging(log_id)
 
-    p.disconnect(physicsClientId=env.client_id)
+    p.disconnect(physicsClientId=env.render_env.client_id)
     animation_results = None if not website else animation.animate()
     return animation_results, TrialResult(  # Save the flow visuals
         success=success,
