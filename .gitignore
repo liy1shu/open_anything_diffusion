@@ -388,3 +388,4 @@ logs/
 results/
 notebooks/artifacts
 notebooks/csv
+notebooks/*.csv
