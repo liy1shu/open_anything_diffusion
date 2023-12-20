@@ -16,6 +16,7 @@ from open_anything_diffusion.metrics.trajectory import artflownet_loss, flow_met
 from open_anything_diffusion.models.flow_predictor import FlowPredictorInferenceModule
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowTrajectoryInferenceModule,
+    flow_metrics,
 )
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
 

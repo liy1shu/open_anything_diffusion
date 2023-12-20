@@ -68,8 +68,6 @@ def compute_normalized_flow(
             T_world_base,
         )
         # Articulate the joint angles
-        chain = pm_raw_data.obj.get_chain(linkname)
-        c_jas = [current_jas[joint.name] for joint in chain]
         target_jas[pm_raw_data.obj.get_joint_by_child(linkname).name] += 0.01
 
         link_flow = P_world_new - P_world

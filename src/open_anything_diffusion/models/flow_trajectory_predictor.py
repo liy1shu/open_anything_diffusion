@@ -7,6 +7,9 @@ import rpad.visualize_3d.plots as v3p
 import torch
 import torch_geometric.data as tgd
 from flowbot3d.grasping.agents.flowbot3d import FlowNetAnimation
+
+# from flowbot3d.models.artflownet import artflownet_loss, flow_metrics
+# from flowbot3d.models.artflownet import artflownet_loss
 from plotly.subplots import make_subplots
 from torch import optim
 
@@ -242,8 +245,8 @@ class FlowTrajectoryInferenceModule(L.LightningModule):
         assert len(xyz.shape) == 2
         assert len(mask.shape) == 1
 
-        data = Data(pos=xyz, mask=mask)
-        batch = Batch.from_data_list([data])
+        data = tgd.Data(pos=xyz, mask=mask)
+        batch = tgd.Batch.from_data_list([data])
         batch = batch.to(self.device)
         self.eval()
         with torch.no_grad():

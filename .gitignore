@@ -396,3 +396,4 @@ src/open_anything_diffusion/models/wandb
 *.jpeg
 *.pth
 *.csv
+notebooks/*.csv
