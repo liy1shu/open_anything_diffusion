@@ -1,48 +1,97 @@
 # open_anything_diffusion
 
-This is a template for a Python Machine Learning project with the following features:
+This repo uses diffusion to handle ambiguous open action planning.
 
-* [Weights and Biases](wandb.ai) support, for experiment tracking and visualization
-* [Hydra](https://hydra.cc/) support, for configuration management
-* [Pytorch Lightning](https://www.pytorchlightning.ai/) support, for training and logging
+## Run Full-set Experiments
 
-In addition, it contains all the good features from the original version of this repository (and is a proper Python package):
+### Train
 
-* Installable via `pip install`. Anyone can point directly to this Github repository and install your project, either as a regular dependency or as an editable one.
-* Uses the new [PEP 518, officially-recommended pyproject.toml](https://pip.pypa.io/en/stable/reference/build-system/pyproject-toml/) structure for defining project structure and dependencies (instead of requirements.txt)
-* Nice, static documentation website support, using mkdocs-material. Structure can be found in `docs/`
-* `black` support by default, which is an opinionated code formatting tool
-* `pytest` support, which will automatically run tests found in the `tests/` directory
-* `mypy` support, for optional typechecking of type hints
-* `pre-commit` support, which runs various formatting modifiers on commit to clean up your dirty dirty code automatically.
-* Github Actions support, which runs the following:
-    * On a Pull Request: install dependencies, run style checks, run Python tests
-    * After merge: same a Pull Request, but also deploy the docs site to the projects Github Pages URL!!!!
+STEP-1: Specify the Config files:
+1) configs/train.yaml: 
 
-All that needs doing is replacing all occurances of `open_anything_diffusion` and `open-anything-diffusion` with the name of your package(including the folder `src/open_anything_diffusion`), the rest should work out of the box!
+    Choose dataset (single flow or trajectory) and model (original flowbot or diffuser)
+    - dataset: trajectory / flowbot
+    - model: artflownet / diffuser
 
-## Installation
+2) configs/training/{}_{}.yaml
 
-First, we'll need to install platform-specific dependencies for Pytorch. See [here](https://pytorch.org/get-started/locally/) for more details. For example, if we want to use CUDA 11.8 with Pytorch 2.
+    Change the corresponding detailed configs for the training process: learning_rate, batch_size, warmup_steps, etc.
 
-```bash
+3) configs/model/{}.yaml
 
-pip install torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorch.org/whl/cu118/
+    Change the detailed configs for the model (Only needed for diffusion)
 
+    - num_train_timesteps: diffusion timestep
+
+STEP-2: Run training script
+```
+python scripts/train.py
 ```
 
-Then, we can install the package itself:
+### Eval (Currently only for flowbot)
 
-```bash
+Basically the same procedure with training, only the config files are eval.yaml (metric evaluation), eval_sim.yaml (simulation evaluation).
 
-pip install -e ".[develop,notebook]"
-
-```
-
-Then we install pre-commit hooks:
-
-```bash
-
-pre-commit install
+Need to specify:
+checkpoint/run_id: the run_id in wandb
+wandb/group: the group name in wandb
 
 ```
+python scripts/eval.py
+python scripts/eval_sim.py
+```
+
+## Run Small Dataset Experiment
+
+Need to change scripts/train.py for training and scripts/eval(_sim).py for evaluation:
+
+When creating dataset, specify the arguments `special_req` and `toy_dataset`.
+
+1) special_req: 
+
+- "half-half"(Half of data fully closed, half of data randomly opened )
+- "fully-closed"(All of data fully closed)
+
+2) toy_dataset: a dict to specify a small dataset
+- id: the name for the toy dataset
+- train-train: the ids for the training set
+- train-test: the ids for the validation set
+- test: the ids for the test set
+
+An Example:
+```
+# Create FlowBot dataset
+datamodule = data_module_class[cfg.dataset.name](
+    root=cfg.dataset.data_dir,
+    batch_size=cfg.training.batch_size,
+    num_workers=cfg.resources.num_workers,
+    n_proc=cfg.resources.n_proc_per_worker,
+    seed=cfg.seed,
+    trajectory_len=trajectory_len, 
+    special_req="half-half"
+    # only for toy training
+    toy_dataset = {
+        "id": "door-1",
+        "train-train": ["8994", "9035"],
+        "train-test": ["8994", "9035"],
+        "test": ["8867"],
+    }
+)
+```
+
+Then run train and eval exactly like before.
+
+## Run Diffusion
+
+Currently For diffusion, most experiments are run with scripts under `src/open_anything_diffusion/models/diffusion`. (Although the above set of pipeline is also complete, I suggest currently run diffusion under this directory and with following commands)
+
+Train: Under `src/open_anything_diffusion/models/diffusion/`
+```
+python diffuser.py
+```
+Eval: Under `src/open_anything_diffusion/models/diffusion/`
+```
+python eval.py
+```
+
+We can also use `inference.ipynb` to see the visualization results
