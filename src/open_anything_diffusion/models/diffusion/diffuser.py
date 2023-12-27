@@ -1,6 +1,7 @@
 ## Diffusion model
 from dataclasses import dataclass
 
+import lightning as L
 import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
@@ -539,6 +540,74 @@ class TrajDiffuser:
                 "mag_error": all_mag_error / len(val_dataloader),
                 "flow_loss": all_flow_loss / len(val_dataloader),
             }
+
+    def predict_step(self, sample):  # For a single sample
+        batch_size = sample.pos.shape[0] // 1200
+        noisy_input = (
+            torch.randn((batch_size, 3, self.traj_len, 1200)).float().to(self.device)
+        )
+
+        condition = sample.pos
+        condition = condition.reshape(-1, 1200, condition.shape[1]).to(self.device)
+
+        for t in self.noise_scheduler.timesteps:
+            model_output = self.model(noisy_input, t, context=sample).sample
+
+            noisy_input = self.noise_scheduler.step(
+                model_output, t, noisy_input
+            ).prev_sample
+
+        flow_prediction = noisy_input.transpose(1, 3)
+
+        # # Metric
+
+        # new_flow_prediction = normalize_trajectory(
+        #         torch.flatten(flow_prediction, start_dim=0, end_dim=1)
+        #     )
+        # new_flow_prediction = new_flow_prediction.reshape(
+        #     -1, 1200, new_flow_prediction.shape[1], new_flow_prediction.shape[2]
+        # )
+
+        # flow_gt = sample.delta.to(self.device)
+        # flow_gt = flow_gt.reshape(-1, 1200, flow_gt.shape[1], flow_gt.shape[2])
+
+        # flow_gt = normalize_trajectory(
+        #     torch.flatten(flow_gt, start_dim=0, end_dim=1)
+        # )
+        # flow_gt = flow_gt.reshape(
+        #     -1, 1200, flow_gt.shape[1], flow_gt.shape[2]
+        # )
+
+        # n_nodes = torch.as_tensor([d.num_nodes for d in sample.to_data_list()]).to(self.device)  # type: ignore
+        # # breakpoint()
+        # flow_loss = artflownet_loss(flow_prediction, flow_gt, n_nodes)
+
+        # # Compute some metrics on flow-only regions.
+        # rmse, cos_dist, mag_error = flow_metrics(
+        #     new_flow_prediction, flow_gt
+        # )
+
+        # print("flow_loss: ", flow_loss)
+        # print("rmse, cos_dist, mag_error: ", rmse, cos_dist, mag_error)
+        return flow_prediction
+
+
+class TrajDiffuserSimWrapper(L.LightningModule):
+    def __init__(self, diffuser):
+        super().__init__()
+        self.diffuser = diffuser
+
+    def forward(self, data):
+        rgb, depth, seg, P_cam, P_world, pc_seg, segmap = data
+        data = tgd.Data(
+            pos=torch.from_numpy(P_world).float().cuda(),
+            # mask=torch.ones(P_world.shape[0]).float(),
+        )
+        batch = tgd.Batch.from_data_list([data])
+        self.eval()
+        with torch.no_grad():
+            flow = self.diffuser.predict_step(batch)
+        return flow.squeeze().cpu()
 
 
 if __name__ == "__main__":

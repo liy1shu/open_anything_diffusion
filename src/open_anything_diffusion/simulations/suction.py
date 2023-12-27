@@ -377,6 +377,7 @@ def run_trial(
         movable_mask = gt_model.get_movable_mask(pc_obs)
         pred_trajectory = model(copy.deepcopy(pc_obs), movable_mask)
     # pred_trajectory = model(copy.deepcopy(pc_obs))
+    # breakpoint()
     pred_trajectory = pred_trajectory.reshape(
         pred_trajectory.shape[0], -1, pred_trajectory.shape[-1]
     )
