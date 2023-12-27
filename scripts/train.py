@@ -12,6 +12,9 @@ from lightning.pytorch.loggers import WandbLogger
 from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
 from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
 from open_anything_diffusion.models.flow_predictor import FlowPredictorTrainingModule
+from open_anything_diffusion.models.flow_trajectory_diffuser import (
+    FlowTrajectoryDiffusionModule,
+)
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowTrajectoryTrainingModule,
 )
@@ -26,8 +29,9 @@ data_module_class = {
     "trajectory": FlowTrajectoryDataModule,
 }
 training_module_class = {
-    "flowbot": FlowPredictorTrainingModule,
-    "trajectory": FlowTrajectoryTrainingModule,
+    "flowbot_artflownet": FlowPredictorTrainingModule,
+    "trajectory_artflownet": FlowTrajectoryTrainingModule,
+    "trajectory_diffuser": FlowTrajectoryDiffusionModule,
 }
 
 
@@ -49,7 +53,8 @@ def main(cfg):
     torch.backends.cudnn.benchmark = False
 
     # Since most of us are training on 3090s+, we can use mixed precision.
-    torch.set_float32_matmul_precision("medium")
+    # torch.set_float32_matmul_precision("medium")
+    torch.set_float32_matmul_precision("highest")
 
     # Global seed for reproducibility.
     L.seed_everything(cfg.seed)
@@ -72,6 +77,29 @@ def main(cfg):
         n_proc=cfg.resources.n_proc_per_worker,
         seed=cfg.seed,
         trajectory_len=trajectory_len,  # Only used when training trajectory model
+        special_req="half-half"
+        # # TODO: only for toy training!!!!!
+        # toy_dataset = {
+        #     "id": "door-1",
+        #     "train-train": ["8994", "9035"],
+        #     "train-test": ["8994", "9035"],
+        #     "test": ["8867"],
+        #     # "train-train": ["8867"],
+        #     # "train-test": ["8867"],
+        #     # "test": ["8867"],
+        # }
+        # toy_dataset = {
+        #     "id": "door-full",
+        #     "train-train": ["8867", "8877", "8893", "8897", "8903", "8919", "8930", "8936", "8961", "8983", "8994", "8997", "9003", "9016", "9032", "9035", "9041", "9065", "9070", "9107", "9117", "9127", "9128", "9148", "9164", "9168", "9263", "9277", "9280", "9281", "9288", "9386", "9388", "9393", "9410"],
+        #     "train-test": ["8994"],
+        #     "test": ["9035"],
+        # }
+        # toy_dataset = {
+        #     "id": "door-full-new",
+        #     "train-train": ["8877", "8893", "8897", "8903", "8919", "8930", "8936", "8961", "8997", "9016", "9032", "9035", "9041", "9065", "9070", "9107", "9117", "9127", "9128", "9148", "9164", "9168", "9277", "9280", "9281", "9288", "9386", "9388", "9410"],
+        #     "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+        #     "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+        # }
     )
     train_loader = datamodule.train_dataloader()
     train_val_loader = datamodule.train_val_dataloader()
@@ -97,9 +125,13 @@ def main(cfg):
     # Model architecture is dataset-dependent, so we have a helper
     # function to create the model (while separating out relevant vals).
 
-    mask_channel = 1 if cfg.training.mask_input_channel else 0
+    if cfg.model.name == "diffuser":
+        in_channels = 3 * cfg.training.trajectory_len + cfg.model.time_embed_dim
+    else:
+        in_channels = 1 if cfg.training.mask_input_channel else 0
+
     network = pnp.PN2Dense(
-        in_channels=mask_channel,
+        in_channels=in_channels,
         out_channels=3 * trajectory_len,
         p=pnp.PN2DenseParams(),
     )
@@ -111,7 +143,9 @@ def main(cfg):
     # and the logging.
     ######################################################################
 
-    model = training_module_class[cfg.dataset.name](network, training_cfg=cfg.training)
+    model = training_module_class[cfg.training.name](
+        network, training_cfg=cfg.training, model_cfg=cfg.model
+    )
 
     ######################################################################
     # Set up logging in WandB.
@@ -156,9 +190,11 @@ def main(cfg):
     trainer = L.Trainer(
         accelerator="gpu",
         devices=cfg.resources.gpus,
-        precision="16-mixed",
+        # precision="16-mixed",
+        precision="32-true",
         max_epochs=cfg.training.epochs,
         logger=logger,
+        check_val_every_n_epoch=cfg.training.check_val_every_n_epoch,
         callbacks=[
             # Callback which logs whatever visuals (i.e. dataset examples, preds, etc.) we want.
             LogPredictionSamplesCallback(
@@ -179,7 +215,7 @@ def main(cfg):
             ModelCheckpoint(
                 dirpath=cfg.lightning.checkpoint_dir,
                 filename="{epoch}-{step}-{val_loss:.2f}-weights-only",
-                monitor="val/loss",
+                monitor="val/flow_loss" if cfg.model.name == "diffuser" else "val/loss",
                 mode="min",
                 save_weights_only=True,
             ),
@@ -206,7 +242,8 @@ def main(cfg):
     # Train the model.
     ######################################################################
 
-    trainer.fit(model, train_loader, [train_val_loader, val_loader, unseen_loader])
+    # trainer.fit(model, train_loader, [val_loader, train_val_loader, unseen_loader], ckpt_path='/home/yishu/open_anything_diffusion/logs/train_trajectory/2023-09-11/19-01-57/checkpoints/last.ckpt')
+    trainer.fit(model, train_loader, [val_loader, train_val_loader, unseen_loader])
 
 
 if __name__ == "__main__":

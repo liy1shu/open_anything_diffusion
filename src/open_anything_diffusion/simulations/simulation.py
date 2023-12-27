@@ -160,6 +160,7 @@ def trial_with_prediction(
     obj_id="41083",
     network=None,
     n_step=1,
+    gt_mask=False,
     gui=False,
     all_joint=False,
     website=False,
@@ -177,7 +178,7 @@ def trial_with_prediction(
 
     print("available_joints:", available_joints)
 
-    model = FlowSimulationInferenceModule(network)
+    model = FlowSimulationInferenceModule(network, mask_input_channel=gt_mask)
 
     if all_joint:  # Need to traverse all the joints
         picked_joints = available_joints
@@ -191,13 +192,70 @@ def trial_with_prediction(
         # print(f"opening {joint.name}, {joint.label}")
         print(f"opening {joint_name}")
         env = PMSuctionSim(obj_id, pm_dir, gui=gui)
-        gt_model = GTFlowModel(raw_data, env)
+        gt_model = GTFlowModel(raw_data, env) if gt_mask else None
         fig, result = run_trial(
             env,
             raw_data,
             joint_name,
             model,
             gt_model=gt_model,
+            n_steps=n_step,
+            save_name=f"{obj_id}_{joint_name}",
+            website=website,
+        )
+        if result.assertion is False:
+            with open(
+                "/home/yishu/open_anything_diffusion/logs/assertion_failure.txt", "a"
+            ) as f:
+                f.write(f"Object: {obj_id}; Joint: {joint_name}\n")
+            continue
+        if result.contact is False:
+            continue
+        figs[joint_name] = fig
+        results.append(result)
+
+    return figs, results
+
+
+def trial_with_diffuser(
+    obj_id="41083",
+    model=None,
+    n_step=30,
+    gui=False,
+    all_joint=False,
+    website=False,
+    available_joints=None,
+):
+    pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
+    # env = PMSuctionSim(obj_id, pm_dir, gui=gui)
+    raw_data = PMObject(os.path.join(pm_dir, obj_id))
+
+    if available_joints is None:  # Use the passed in joint sets
+        available_joints = raw_data.semantics.by_type(
+            "hinge"
+        ) + raw_data.semantics.by_type("slider")
+        available_joints = [joint.name for joint in available_joints]
+
+    print("available_joints:", available_joints)
+    if all_joint:  # Need to traverse all the joints
+        picked_joints = available_joints
+    else:
+        picked_joints = [available_joints[np.random.randint(0, len(available_joints))]]
+
+    results = []
+    figs = {}
+    for joint_name in picked_joints:
+        # t0 = time.perf_counter()
+        # print(f"opening {joint.name}, {joint.label}")
+        print(f"opening {joint_name}")
+        env = PMSuctionSim(obj_id, pm_dir, gui=gui)
+        # gt_model = GTFlowModel(raw_data, env)
+        fig, result = run_trial(
+            env,
+            raw_data,
+            joint_name,
+            model,
+            gt_model=None,  # Don't need mask
             n_steps=n_step,
             save_name=f"{obj_id}_{joint_name}",
             website=website,

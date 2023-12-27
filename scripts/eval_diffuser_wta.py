@@ -1,33 +1,25 @@
-from pathlib import Path
+# Diffuser evaluation scripts
 
 import hydra
 import lightning as L
 import omegaconf
-import pandas as pd
 import rpad.partnet_mobility_utils.dataset as rpd
 import rpad.pyg.nets.pointnet2 as pnp
 import torch
-import tqdm
 import wandb
 
 from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
-from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
-from open_anything_diffusion.metrics.trajectory import artflownet_loss, flow_metrics
-from open_anything_diffusion.models.flow_predictor import FlowPredictorInferenceModule
-from open_anything_diffusion.models.flow_trajectory_predictor import (
-    FlowTrajectoryInferenceModule,
-    flow_metrics,
+from open_anything_diffusion.models.flow_trajectory_diffuser import (
+    FlowTrajectoryDiffuserInferenceModule,
 )
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
 
 data_module_class = {
-    "flowbot": FlowBotDataModule,
     "trajectory": FlowTrajectoryDataModule,
 }
 
 inference_module_class = {
-    "flowbot": FlowPredictorInferenceModule,
-    "trajectory": FlowTrajectoryInferenceModule,
+    "trajectory": FlowTrajectoryDiffuserInferenceModule,
 }
 
 
@@ -43,7 +35,7 @@ def main(cfg):
     torch.backends.cudnn.benchmark = False
 
     # Since most of us are training on 3090s+, we can use mixed precision.
-    torch.set_float32_matmul_precision("medium")
+    torch.set_float32_matmul_precision("highest")
 
     # Global seed for reproducibility.
     L.seed_everything(42)
@@ -53,22 +45,24 @@ def main(cfg):
     # Should be the same one as in training, but we're gonna use val+test
     # dataloaders.
     ######################################################################
-    trajectory_len = (
-        1 if cfg.dataset.name == "flowbot" else cfg.inference.trajectory_len
-    )
+    trajectory_len = cfg.inference.trajectory_len
     # Create FlowBot dataset
-    datamodule = data_module_class[cfg.dataset.name](
-        root=cfg.dataset.data_dir,
-        # batch_size=cfg.inference.batch_size,
-        batch_size=1,  # TODO: FOR DOOR dataset
-        num_workers=cfg.resources.num_workers,
-        n_proc=cfg.resources.n_proc_per_worker,
-        seed=cfg.seed,
-        # trajectory_len=trajectory_len,  # Only used when inference trajectory model
-        trajectory_len=trajectory_len,  # Only used when inference trajectory model
-        # trajectory_len=15,  # mpc
-        special_req="fully-closed",
-        # Door dataset # TODO: FOR DOOR dataset
+    datamodule = FlowTrajectoryDataModule(
+        root="/home/yishu/datasets/partnet-mobility",
+        batch_size=1,
+        num_workers=30,
+        n_proc=2,
+        seed=42,
+        trajectory_len=1,  # Only used when training trajectory model
+        # toy_dataset = {
+        #     "id": "door-1",
+        #     "train-train": ["8994", "9035"],
+        #     "train-test": ["8994", "9035"],
+        #     "test": ["8867"],
+        #     # "train-train": ["8867"],
+        #     # "train-test": ["8867"],
+        #     # "test": ["8867"],
+        # }
         toy_dataset={
             "id": "door-full-new",
             "train-train": [
@@ -142,9 +136,9 @@ def main(cfg):
     # We'll also load the weights.
     ######################################################################
 
-    mask_channel = 1 if cfg.inference.mask_input_channel else 0
+    in_channels = 3 * cfg.inference.trajectory_len + cfg.model.time_embed_dim
     network = pnp.PN2Dense(
-        in_channels=mask_channel,
+        in_channels=in_channels,
         out_channels=3 * trajectory_len,
         p=pnp.PN2DenseParams(),
     )
@@ -159,12 +153,13 @@ def main(cfg):
         ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
     else:
         ckpt_file = checkpoint_reference
+    # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory/2023-09-11/19-08-26/checkpoints/epoch=5004-step=3933930.ckpt'
 
-    # Load the network weights.
-    ckpt = torch.load(ckpt_file)
-    network.load_state_dict(
-        {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items()}
-    )
+    # # Load the network weights.
+    # ckpt = torch.load(ckpt_file)
+    # network.load_state_dict(
+    #     {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items()}
+    # )
 
     ######################################################################
     # Create an inference module, which is basically just a bare-bones
@@ -179,8 +174,10 @@ def main(cfg):
     ######################################################################
 
     model = inference_module_class[cfg.dataset.name](
-        network, inference_config=cfg.inference
+        network, inference_cfg=cfg.inference, model_cfg=cfg.model
     )
+    model.load_from_ckpt(ckpt_file)
+    model.eval()
 
     ######################################################################
     # Create the trainer.
@@ -191,12 +188,12 @@ def main(cfg):
     # If this is a different kind of downstream eval, chuck this block.
     ######################################################################
 
-    trainer = L.Trainer(
-        accelerator="gpu",
-        devices=cfg.resources.gpus,
-        precision="16-mixed",
-        logger=False,
-    )
+    # trainer = L.Trainer(
+    #     accelerator="gpu",
+    #     devices=cfg.resources.gpus,
+    #     precision="32-true",
+    #     logger=False,
+    # )
 
     ######################################################################
     # Run the model on the train/val/test sets.
@@ -208,149 +205,107 @@ def main(cfg):
     ######################################################################
 
     dataloaders = [
-        (datamodule.train_val_dataloader(), "train"),
-        (datamodule.val_dataloader(), "val"),
-        # (datamodule.unseen_dataloader(), "test"),   # TODO: FOR DOOR dataset
+        # (datamodule.train_val_dataloader(), "train"),
+        (datamodule.train_val_dataloader(bsz=1), "val"),
+        (datamodule.unseen_dataloader(), "test"),
     ]
+
+    trial_time = 50
 
     all_objs = (
         rpd.UMPNET_TRAIN_TRAIN_OBJS + rpd.UMPNET_TRAIN_TEST_OBJS + rpd.UMPNET_TEST_OBJS
     )
     id_to_obj_class = {obj_id: obj_class for obj_id, obj_class in all_objs}
 
+    all_metrics = []
     all_directions = []
-    all_metrics = {
-        "flow_loss": [],
-        "rmse": [],
-        "cos_dist": [],
-        "mag_error": [],
-    }
-
+    sample_cnt = 0
     for loader, name in dataloaders:
-        metrics = []
-        outputs = trainer.predict(
-            model,
-            dataloaders=[loader],
+        sample_cnt += len(loader)
+
+        metrics, directions = model.predict_wta(
+            dataloader=loader, mode="delta", trial_times=trial_time
         )
+        print(f"{name} metric:")
+        print(metrics)
 
-        for batch, preds in zip(tqdm.tqdm(loader), outputs):
-            st = 0
-            for data in batch.to_data_list():
-                f_pred = preds[st : st + data.num_nodes]
-                f_pred = f_pred.reshape(f_pred.shape[0], -1, 3)
-                f_ix = data.mask.bool()
-                if cfg.dataset.name == "trajectory":
-                    f_target = data.delta
-                else:
-                    f_target = data.flow
-                    f_target = f_target.reshape(f_target.shape[0], -1, 3)
-
-                n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(f_pred.device)  # type: ignore
-                flow_loss = artflownet_loss(f_pred, f_target, n_nodes)
-                rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
-
-                all_metrics["flow_loss"].append(flow_loss)
-                all_metrics["rmse"].append(rmse)
-                all_metrics["cos_dist"].append(cos_dist)
-                all_metrics["mag_error"].append(mag_error)
-
-                all_directions.append(cos_dist)
-
-                metrics.append(
-                    {
-                        "id": data.id,
-                        # "obj_class": id_to_obj_class[data.id],  # TODO: FOR DOOR dataset
-                        "obj_class": "door",
-                        "metrics": {
-                            "rmse": rmse.cpu().item(),
-                            "cos_dist": cos_dist.cpu().item(),
-                            "mag_error": mag_error.cpu().item(),
-                        },
-                    }
-                )
-
-                st += data.num_nodes
-
-        rows = [
-            (
-                m["id"],
-                m["obj_class"],
-                m["metrics"]["rmse"],
-                m["metrics"]["cos_dist"],
-                m["metrics"]["mag_error"],
-            )
-            for m in metrics
-        ]
-        raw_df = pd.DataFrame(
-            rows, columns=["id", "category", "rmse", "cos_dist", "mag_error"]
-        )
-        df = raw_df.groupby("category").mean(numeric_only=True)
-        df.loc["unweighted_mean"] = raw_df.mean(numeric_only=True)
-        df.loc["class_mean"] = df.mean()
-
-        out_file = Path(cfg.log_dir) / f"{cfg.dataset.name}_{trajectory_len}_{name}.csv"
-        print(out_file)
-        # if out_file.exists():
-        #     raise ValueError(f"{out_file} already exists...")
-        df.to_csv(out_file, float_format="%.3f")
-
-        # Log the metrics + table to wandb.
-        table = wandb.Table(dataframe=df.reset_index())
-        run.log({f"{name}_metric_table": table})
+        all_metrics.append(metrics)
+        all_directions += directions
 
     # Scatter plot
     ys = [d.item() for d in all_directions]
-    xs = [
-        "8877",
-        "8893",
-        "8897",
-        "8903",
-        "8919",
-        "8930",
-        "8961",
-        "8997",
-        "9016",
-        "9032",
-        "9035",
-        "9041",
-        "9065",
-        "9070",
-        "9107",
-        "9117",
-        "9127",
-        "9128",
-        "9148",
-        "9164",
-        "9168",
-        "9277",
-        "9280",
-        "9281",
-        "9288",
-        "9386",
-        "9388",
-        "9410",
-        "8867",
-        "8983",
-        "8994",
-        "9003",
-        "9263",
-        "9393",
-    ]
-    breakpoint()
-    colors = sorted(["red", "blue", "green"]) * len(xs)
+    xs = sorted(list(range(sample_cnt)) * trial_time)
+    xs = [f"{x}" for x in xs]
+    colors = sorted(["red", "blue", "green"] * trial_time) * sample_cnt
     import matplotlib.pyplot as plt
 
-    fig = plt.figure()
-    ax = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-    ax.axhline(y=0)
-    plt.scatter(xs, ys, s=5, c=colors[: len(ys)])
-    plt.xticks(rotation=90)
+    plt.figure()
+    plt.scatter(xs, ys, s=5, c=colors[: len(xs)])
+    plt.savefig("./cos_stats.jpeg")
 
-    plt.savefig("./half_cos_stats.jpeg")
+    # for batch, preds in zip(tqdm.tqdm(loader), outputs):
+    #     st = 0
+    #     for data in batch.to_data_list():
+    #         f_pred = preds[st : st + data.num_nodes]
+    #         f_pred = f_pred.reshape(f_pred.shape[0], -1, 3)
 
-    # All metrics
-    for name in all_metrics.keys():
-        print(f"{name}: {sum(all_metrics[name]) / len(all_metrics[name])}")
+    #         # Ignore nan predictions for now...
+    #         if torch.isnan(f_pred).sum() != 0:
+    #             continue
+
+    #         f_ix = data.mask.bool()
+    #         if cfg.dataset.name == "trajectory":
+    #             f_target = data.delta
+    #         else:
+    #             f_target = data.flow
+    #             f_target = f_target.reshape(f_target.shape[0], -1, 3)
+
+    #         f_pred = normalize_trajectory(f_pred)
+    #         f_target = normalize_trajectory(f_target)
+    #         rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
+
+    #         metrics.append(
+    #             {
+    #                 "id": data.id,
+    #                 "obj_class": id_to_obj_class[data.id],
+    #                 "metrics": {
+    #                     "rmse": rmse.cpu().item(),
+    #                     "cos_dist": cos_dist.cpu().item(),
+    #                     "mag_error": mag_error.cpu().item(),
+    #                 },
+    #             }
+    #         )
+
+    #         st += data.num_nodes
+
+    # rows = [
+    #     (
+    #         m["id"],
+    #         m["obj_class"],
+    #         m["metrics"]["rmse"],
+    #         m["metrics"]["cos_dist"],
+    #         m["metrics"]["mag_error"],
+    #     )
+    #     for m in metrics
+    # ]
+    # raw_df = pd.DataFrame(
+    #     rows, columns=["id", "category", "rmse", "cos_dist", "mag_error"]
+    # )
+    # df = raw_df.groupby("category").mean(numeric_only=True)
+    # df.loc["unweighted_mean"] = raw_df.mean(numeric_only=True)
+    # df.loc["class_mean"] = df.mean()
+
+    # out_file = Path(cfg.log_dir) / f"{cfg.dataset.name}_{trajectory_len}_{name}.csv"
+    # print(out_file)
+    # # if out_file.exists():
+    # #     raise ValueError(f"{out_file} already exists...")
+    # df.to_csv(out_file, float_format="%.3f")
+
+    # # Log the metrics + table to wandb.
+    # table = wandb.Table(dataframe=df.reset_index())
+    # run.log({f"{name}_metric_table": table})
+
+    breakpoint()
 
 
 if __name__ == "__main__":

@@ -13,41 +13,42 @@ from flowbot3d.grasping.agents.flowbot3d import FlowNetAnimation
 from plotly.subplots import make_subplots
 from torch import optim
 
+from open_anything_diffusion.metrics.trajectory import artflownet_loss, flow_metrics
 
-def flow_metrics(pred_flow, gt_flow):
-    with torch.no_grad():
-        # RMSE
-        rmse = (pred_flow - gt_flow).norm(p=2, dim=-1).mean()
+# def flow_metrics(pred_flow, gt_flow):
+#     with torch.no_grad():
+#         # RMSE
+#         rmse = (pred_flow - gt_flow).norm(p=2, dim=-1).mean()
 
-        # Cosine similarity, normalized.
-        nonzero_gt_flowixs = torch.where(gt_flow.norm(dim=-1) != 0.0)
-        gt_flow_nz = gt_flow[nonzero_gt_flowixs]
-        pred_flow_nz = pred_flow[nonzero_gt_flowixs]
-        cos_dist = torch.cosine_similarity(pred_flow_nz, gt_flow_nz, dim=-1).mean()
+#         # Cosine similarity, normalized.
+#         nonzero_gt_flowixs = torch.where(gt_flow.norm(dim=-1) != 0.0)
+#         gt_flow_nz = gt_flow[nonzero_gt_flowixs]
+#         pred_flow_nz = pred_flow[nonzero_gt_flowixs]
+#         cos_dist = torch.cosine_similarity(pred_flow_nz, gt_flow_nz, dim=-1).mean()
 
-        # Magnitude
-        mag_error = (
-            (pred_flow.norm(p=2, dim=-1) - gt_flow.norm(p=2, dim=-1)).abs().mean()
-        )
-    print(rmse, cos_dist, mag_error)
-    return rmse, cos_dist, mag_error
+#         # Magnitude
+#         mag_error = (
+#             (pred_flow.norm(p=2, dim=-1) - gt_flow.norm(p=2, dim=-1)).abs().mean()
+#         )
+#     print(rmse, cos_dist, mag_error)
+#     return rmse, cos_dist, mag_error
 
 
-def artflownet_loss(
-    f_pred: torch.Tensor,
-    f_target: torch.Tensor,
-    n_nodes: torch.Tensor,
-) -> torch.Tensor:
-    # Flow loss, per-point.
-    raw_se = ((f_pred - f_target) ** 2).sum(dim=-1)
+# def artflownet_loss(
+#     f_pred: torch.Tensor,
+#     f_target: torch.Tensor,
+#     n_nodes: torch.Tensor,
+# ) -> torch.Tensor:
+#     # Flow loss, per-point.
+#     raw_se = ((f_pred - f_target) ** 2).sum(dim=-1)
 
-    weights = (1 / n_nodes).repeat_interleave(n_nodes)
-    l_se = (raw_se * weights[:, None]).sum() / f_pred.shape[1]  # Trajectory length
+#     weights = (1 / n_nodes).repeat_interleave(n_nodes)
+#     l_se = (raw_se * weights[:, None]).sum() / f_pred.shape[1]  # Trajectory length
 
-    # Full loss, aberaged across the batch.
-    loss: torch.Tensor = l_se / len(n_nodes)
+#     # Full loss, aberaged across the batch.
+#     loss: torch.Tensor = l_se / len(n_nodes)
 
-    return loss
+#     return loss
 
 
 def make_trajectory_animation(traj_data):  # Make trajectory animation
@@ -72,7 +73,7 @@ def make_trajectory_animation(traj_data):  # Make trajectory animation
 
 # Flow predictor
 class FlowTrajectoryTrainingModule(L.LightningModule):
-    def __init__(self, network, training_cfg) -> None:
+    def __init__(self, network, training_cfg, model_cfg=None) -> None:
         super().__init__()
         self.network = network
         self.lr = training_cfg.lr
@@ -137,7 +138,7 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
 
     def validation_step(self, batch: tgd.Batch, batch_id, dataloader_idx=0):  # type: ignore
         self.eval()
-        dataloader_names = ["train", "val", "unseen"]
+        dataloader_names = ["val", "train", "unseen"]
         name = dataloader_names[dataloader_idx]
         f_pred, loss = self._step(batch, name)
         return {"preds": f_pred, "loss": loss}
@@ -205,14 +206,14 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
         return {"artflownet_plot": fig}
 
 
-class FlowPredictorInferenceModule(L.LightningModule):
-    def __init__(self, network, inference_config=None) -> None:
+# Implement this for trajectory eval
+class FlowTrajectoryInferenceModule(L.LightningModule):
+    def __init__(self, network, inference_config) -> None:
         super().__init__()
         self.network = network
-        if inference_config is None:
-            self.mask_input_channel = True  # default
-        else:
-            self.mask_input_channel = inference_config.mask_input_channel
+        self.mask_input_channel = inference_config.mask_input_channel
+        self.trajectory_len = inference_config.trajectory_len
+        # self.mpc_step = inference_config.mpc_step
 
     def forward(self, data) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
@@ -254,22 +255,23 @@ class FlowPredictorInferenceModule(L.LightningModule):
 
 
 class FlowSimulationInferenceModule(L.LightningModule):
-    def __init__(self, network) -> None:
+    def __init__(self, network, mask_input_channel) -> None:
         super().__init__()
         self.network = network
+        self.mask_input_channel = mask_input_channel
 
-    def forward(self, data, mask=None) -> torch.Tensor:  # type: ignore
+    def forward(self, data) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
         rgb, depth, seg, P_cam, P_world, pc_seg, segmap = data
 
-        if mask is None:
-            mask = torch.ones(P_world.shape[0]).float()
-        else:
-            mask = torch.from_numpy(mask).float()
-        data = tgd.Data(pos=torch.from_numpy(P_world).float(), mask=mask)
+        data = tgd.Data(
+            pos=torch.from_numpy(P_world).float(),
+            mask=torch.ones(P_world.shape[0]).float(),
+        )
         batch = tgd.Batch.from_data_list([data])
         batch = batch.to(self.device)
-        batch.x = batch.mask.reshape(len(batch.mask), 1)
+        if self.mask_input_channel:
+            batch.x = batch.mask.reshape(len(batch.mask), 1)
         self.eval()
         with torch.no_grad():
             trajectory = self.network(batch)

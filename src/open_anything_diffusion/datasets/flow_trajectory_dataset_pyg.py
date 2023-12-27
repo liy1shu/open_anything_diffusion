@@ -23,9 +23,10 @@ class FlowTrajectoryPyGDataset(tgd.Dataset):
         self,
         root: str,
         split: Union[pmd.AVAILABLE_DATASET, List[str]],
-        randomize_joints: bool = True,
+        randomize_joints: bool = True,  # TODO: set to True
         randomize_camera: bool = True,
         trajectory_len: int = 5,
+        special_req: str = None,
         n_points: Optional[int] = 1200,
         seed: int = 42,  # Randomize everything
     ) -> None:
@@ -36,6 +37,7 @@ class FlowTrajectoryPyGDataset(tgd.Dataset):
             randomize_joints,
             randomize_camera,
             trajectory_len,
+            special_req,
             n_points,
         )
         self.seed = seed
@@ -47,10 +49,29 @@ class FlowTrajectoryPyGDataset(tgd.Dataset):
         return self.get_data(self.dataset._dataset._ids[index], seed=self.seed)
 
     @staticmethod
-    def get_processed_dir(randomize_joints, randomize_camera, trajectory_len):
+    def get_processed_dir(
+        randomize_joints,
+        randomize_camera,
+        trajectory_len,
+        special_req=None,
+        toy_dataset_id=None,
+    ):
         joint_chunk = "rj" if randomize_joints else "sj"
         camera_chunk = "rc" if randomize_camera else "sc"
-        return f"processed_{trajectory_len}_{joint_chunk}_{camera_chunk}"
+        if special_req is None and toy_dataset_id is None:
+            return f"processed_{trajectory_len}_{joint_chunk}_{camera_chunk}_random"
+        elif special_req is not None and toy_dataset_id is None:
+            # fully_closed
+            # half_half
+            return (
+                f"processed_{trajectory_len}_{joint_chunk}_{camera_chunk}_{special_req}"
+            )
+        elif special_req is None and toy_dataset_id is not None:
+            # fully_closed
+            # half_half
+            return f"processed_{trajectory_len}_{joint_chunk}_{camera_chunk}_toy{toy_dataset_id}_random"
+        else:
+            return f"processed_{trajectory_len}_{joint_chunk}_{camera_chunk}_{special_req}_toy{toy_dataset_id}"
 
     def get_data(self, obj_id: str, seed) -> FlowTrajectoryTGData:
         data_dict = self.dataset.get_data(obj_id, seed)
