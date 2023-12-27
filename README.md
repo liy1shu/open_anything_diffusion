@@ -28,7 +28,7 @@ STEP-2: Run training script
 python scripts/train.py
 ```
 
-### Eval (Currently only for flowbot)
+### Eval
 
 Basically the same procedure with training, only the config files are eval.yaml (metric evaluation), eval_sim.yaml (simulation evaluation).
 
@@ -38,10 +38,12 @@ wandb/group: the group name in wandb
 
 ```
 python scripts/eval.py
-python scripts/eval_sim.py
+python scripts/eval_sim.py  (Currently only for flowbot)
 ```
 
 ## Run Small Dataset Experiment
+
+(This needs some changes in the `r-pad/partnet_mobility_utils` repo that are currently kept local. Should ask Yishu about it)
 
 Need to change scripts/train.py for training and scripts/eval(_sim).py for evaluation:
 
