@@ -38,6 +38,8 @@ wandb/group: the group name in wandb
 
 ```
 python scripts/eval.py
+python scripts/eval_diffuser_wta.py
+python scripts/eval_diffuser.py
 python scripts/eval_sim.py  (Currently only for flowbot)
 ```
 
