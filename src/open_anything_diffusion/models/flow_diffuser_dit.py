@@ -254,7 +254,7 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
         name = dataloader_names[dataloader_idx]
         with torch.no_grad():
             f_pred, loss = self.predict(batch, name)
-            if self.wta and name != "train":
+            if self.wta:
                 f_pred, loss = self.predict_wta(batch, name)
         # breakpoint()
         return {"preds": f_pred, "loss": loss}

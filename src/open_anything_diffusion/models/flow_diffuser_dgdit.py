@@ -250,7 +250,7 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
         with torch.no_grad():
             f_pred, loss = self.predict(batch, name)
             # print("predict:", f_pred.shape)
-            if self.wta and name != "train":
+            if self.wta:
                 f_pred, loss = self.predict_wta(batch, name)
                 # print("predict wta:", f_pred.shape)
         # breakpoint()
