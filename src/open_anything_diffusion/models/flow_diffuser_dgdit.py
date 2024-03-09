@@ -206,7 +206,7 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
                 f"{mode}_wta/mag_error": mag_error[chosen_id],
                 f"{mode}_wta/multimodal": multimodal,
                 f"{mode}_wta/pos@0.7": pos_cosine,
-                f"{mode}_wtas/neg@0.7": neg_cosine,
+                f"{mode}_wta/neg@0.7": neg_cosine,
             },
             add_dataloader_idx=False,
             batch_size=len(batch),
