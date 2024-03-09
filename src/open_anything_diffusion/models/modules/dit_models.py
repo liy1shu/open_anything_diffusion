@@ -343,6 +343,7 @@ class DGDiT(nn.Module):
         # x = encoded_pcd.reshape(x.shape[0], 1200, -1)
 
         # 2) Take DGCNN encoded point cloud
+        # print(torch.flatten(x, start_dim=2, end_dim=3).shape, pos.permute(0, 2, 1).shape)
         x = torch.cat(
             (torch.flatten(x, start_dim=2, end_dim=3), pos.permute(0, 2, 1)), dim=1
         )

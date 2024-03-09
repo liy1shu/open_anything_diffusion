@@ -49,12 +49,12 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
     def forward(self, batch: tgd.Batch, mode):
         x = (
             batch.delta.squeeze(2)
-            .reshape(-1, 30, 40, 3 * self.trial_len)
+            .reshape(-1, 30, 40, 3 * self.traj_len)
             .permute(0, 3, 1, 2)
             .float()
             .cuda()
         )
-        pos = batch.pos.reshape(-1, self.sample_size, 3 * self.trial_len).float().cuda()
+        pos = batch.pos.reshape(-1, self.sample_size, 3 * self.traj_len).float().cuda()
 
         model_kwargs = dict(pos=pos, context=batch)
         loss_dict = self.diffusion.training_losses(
@@ -81,12 +81,7 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
         bs = batch.delta.shape[0] // self.sample_size
         z = torch.randn(bs, 3 * self.traj_len, 30, 40, device=self.device)  # .float()
 
-        pos = (
-            batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
-            .permute(0, 2, 1)
-            .float()
-            .cuda()
-        )
+        pos = batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len).float().cuda()
         model_kwargs = dict(pos=pos, context=batch)
 
         samples, results = self.diffusion.p_sample_loop(
@@ -148,12 +143,7 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
 
         z = torch.randn(bs, 3 * self.traj_len, 30, 40, device=self.device)  # .float()
 
-        pos = (
-            batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
-            .permute(0, 2, 1)
-            .float()
-            .cuda()
-        )
+        pos = batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len).float().cuda()
         model_kwargs = dict(pos=pos, context=batch)
 
         samples, results = self.diffusion.p_sample_loop(
@@ -198,7 +188,7 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
 
         # Aggregate the results
         # Choose the one with smallest flow loss
-        flow_loss = flow_loss.reshape(bs, -1).mean(-1)
+        flow_loss = loss.reshape(bs, -1).mean(-1)
         rmse = rmse.reshape(bs, -1).mean(-1)
         cos_dist = cos_dist.reshape(bs, -1).mean(-1)
         mag_error = mag_error.reshape(bs, -1).mean(-1)
@@ -210,10 +200,10 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
 
         self.log_dict(
             {
-                f"{mode}_wta/flow_loss": loss,
-                f"{mode}_wta/rmse": rmse,
-                f"{mode}_wta/cosine_similarity": cos_dist,
-                f"{mode}_wta/mag_error": mag_error,
+                f"{mode}_wta/flow_loss": flow_loss[chosen_id],
+                f"{mode}_wta/rmse": rmse[chosen_id],
+                f"{mode}_wta/cosine_similarity": cos_dist[chosen_id],
+                f"{mode}_wta/mag_error": mag_error[chosen_id],
                 f"{mode}_wta/multimodal": multimodal,
                 f"{mode}_wta/pos@0.7": pos_cosine,
                 f"{mode}_wtas/neg@0.7": neg_cosine,
@@ -221,7 +211,10 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
             add_dataloader_idx=False,
             batch_size=len(batch),
         )
-        return f_pred[chosen_id], loss[chosen_id]
+        return (
+            f_pred.reshape(bs, self.sample_size, self.traj_len, 3)[chosen_id],
+            loss[chosen_id],
+        )
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=1e-5)
@@ -239,10 +232,10 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
         self.train()
         bs = batch.delta.shape[0] // self.sample_size
 
-        batch.delta = normalize_trajectory(batch.delta)
+        # batch.delta = normalize_trajectory(batch.delta)
         batch.timesteps = torch.randint(
             0,
-            self.noise_scheduler.config.num_train_timesteps,
+            self.num_train_timesteps,
             (bs,),
             device=self.device,
         ).long()
@@ -256,8 +249,10 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
         name = dataloader_names[dataloader_idx]
         with torch.no_grad():
             f_pred, loss = self.predict(batch, name)
+            # print("predict:", f_pred.shape)
             if self.wta and name != "train":
                 f_pred, loss = self.predict_wta(batch, name)
+                # print("predict wta:", f_pred.shape)
         # breakpoint()
         return {"preds": f_pred, "loss": loss}
 

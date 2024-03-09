@@ -240,7 +240,7 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
         batch.delta = normalize_trajectory(batch.delta)
         batch.timesteps = torch.randint(
             0,
-            self.noise_scheduler.config.num_train_timesteps,
+            self.num_train_timesteps,
             (bs,),
             device=self.device,
         ).long()

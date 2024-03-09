@@ -8,7 +8,7 @@ check_val_every_n_epoch: 5
 trajectory_len: 1
 mode: delta
 wta: False
-wta_trial_times: None
+wta_trial_times: 20
 
 # lr_warmup_steps: 5
 # batch_size: 1

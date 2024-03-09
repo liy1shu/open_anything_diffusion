@@ -148,8 +148,9 @@ def main(cfg):
     train_loader = datamodule.train_dataloader()
     cfg.training.train_sample_number = len(train_loader)
     train_val_loader = datamodule.train_val_dataloader()
-    val_loader = datamodule.val_dataloader()
-    unseen_loader = datamodule.unseen_dataloader()
+    eval_sample_bsz = 1 if cfg.training.wta else cfg.training.batch_size
+    val_loader = datamodule.val_dataloader(bsz=eval_sample_bsz)
+    unseen_loader = datamodule.unseen_dataloader(bsz=eval_sample_bsz)
 
     ######################################################################
     # Create the network(s) which will be trained by the Training Module.
@@ -197,12 +198,11 @@ def main(cfg):
         )
     elif "dit" in cfg.model.name:
         network = DiT(
-            in_channels=in_channels,
+            in_channels=in_channels + 3,
             depth=5,
             hidden_size=128,
             num_heads=4,
             learn_sigma=True,
-            n_points=cfg.dataset.n_points,
         ).cuda()
 
     ######################################################################
@@ -284,7 +284,9 @@ def main(cfg):
             ModelCheckpoint(
                 dirpath=cfg.lightning.checkpoint_dir,
                 filename="{epoch}-{step}-{val_loss:.2f}-weights-only",
-                monitor="val/flow_loss" if cfg.model.name == "diffuser" else "val/loss",
+                monitor="val/flow_loss"
+                if cfg.model.name == "diffuser"
+                else "val/flow_loss",
                 mode="min",
                 save_weights_only=True,
             ),
