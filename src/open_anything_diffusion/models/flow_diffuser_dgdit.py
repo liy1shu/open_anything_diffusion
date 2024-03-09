@@ -194,8 +194,8 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
         mag_error = mag_error.reshape(bs, -1).mean(-1)
 
         chosen_id = torch.min(flow_loss, 0)[1]  # index
-        pos_cosine = torch.sum((cos_dist - 0.7) > 0)
-        neg_cosine = torch.sum((cos_dist + 0.7) < 0)
+        pos_cosine = torch.mean((cos_dist - 0.7) > 0)
+        neg_cosine = torch.mean((cos_dist + 0.7) < 0)
         multimodal = 1 if (pos_cosine != 0 and neg_cosine != 0) else 0
 
         self.log_dict(
