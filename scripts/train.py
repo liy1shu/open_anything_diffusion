@@ -147,8 +147,8 @@ def main(cfg):
     )
     train_loader = datamodule.train_dataloader()
     cfg.training.train_sample_number = len(train_loader)
-    train_val_loader = datamodule.train_val_dataloader()
     eval_sample_bsz = 1 if cfg.training.wta else cfg.training.batch_size
+    train_val_loader = datamodule.train_val_dataloader(bsz=eval_sample_bsz)
     val_loader = datamodule.val_dataloader(bsz=eval_sample_bsz)
     unseen_loader = datamodule.unseen_dataloader(bsz=eval_sample_bsz)
 
