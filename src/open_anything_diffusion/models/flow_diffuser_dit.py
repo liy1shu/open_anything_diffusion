@@ -196,30 +196,33 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
 
         # Aggregate the results
         # Choose the one with smallest flow loss
-        flow_loss = flow_loss.reshape(bs, -1).mean(-1)
+        flow_loss = loss.reshape(bs, -1).mean(-1)
         rmse = rmse.reshape(bs, -1).mean(-1)
         cos_dist = cos_dist.reshape(bs, -1).mean(-1)
         mag_error = mag_error.reshape(bs, -1).mean(-1)
 
         chosen_id = torch.min(flow_loss, 0)[1]  # index
-        pos_cosine = torch.mean((cos_dist - 0.7) > 0)
-        neg_cosine = torch.mean((cos_dist + 0.7) < 0)
+        pos_cosine = torch.sum((cos_dist - 0.7) > 0) / bs
+        neg_cosine = torch.sum((cos_dist + 0.7) < 0) / bs
         multimodal = 1 if (pos_cosine != 0 and neg_cosine != 0) else 0
 
         self.log_dict(
             {
-                f"{mode}_wta/flow_loss": loss,
-                f"{mode}_wta/rmse": rmse,
-                f"{mode}_wta/cosine_similarity": cos_dist,
-                f"{mode}_wta/mag_error": mag_error,
+                f"{mode}_wta/flow_loss": flow_loss[chosen_id].item(),
+                f"{mode}_wta/rmse": rmse[chosen_id].item(),
+                f"{mode}_wta/cosine_similarity": cos_dist[chosen_id].item(),
+                f"{mode}_wta/mag_error": mag_error[chosen_id].item(),
                 f"{mode}_wta/multimodal": multimodal,
-                f"{mode}_wta/pos@0.7": pos_cosine,
-                f"{mode}_wta/neg@0.7": neg_cosine,
+                f"{mode}_wta/pos@0.7": pos_cosine.item(),
+                f"{mode}_wta/neg@0.7": neg_cosine.item(),
             },
             add_dataloader_idx=False,
             batch_size=len(batch),
         )
-        return f_pred[chosen_id], loss[chosen_id]
+        return (
+            f_pred.reshape(bs, self.sample_size, self.traj_len, 3)[chosen_id],
+            loss[chosen_id],
+        )
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=1e-5)
