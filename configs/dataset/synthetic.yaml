@@ -1,0 +1,6 @@
+name: synthetic
+dataset: synthetic
+model: synthetic
+batch_size: 1
+seed: 42
+n_points: 1200

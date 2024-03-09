@@ -1,4 +1,4 @@
-name: trajectory_diffuser
+name: synthetic_diffuser_pn++
 lr: 1e-4
 # lr_warmup_steps: 100
 # batch_size: 64
@@ -10,5 +10,5 @@ mode: delta
 
 lr_warmup_steps: 5
 batch_size: 1
-epochs: 5000  # For toy
+epochs: 10000  # For toy
 train_sample_number : 2  # For toy

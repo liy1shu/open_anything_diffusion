@@ -265,6 +265,8 @@ def main(cfg):
                             "rmse": rmse.cpu().item(),
                             "cos_dist": cos_dist.cpu().item(),
                             "mag_error": mag_error.cpu().item(),
+                            "pos@0.7": int(cos_dist.cpu().item() > 0.7),
+                            "neg@-0.7": int(cos_dist.cpu().item() < -0.7),
                         },
                     }
                 )
@@ -278,11 +280,22 @@ def main(cfg):
                 m["metrics"]["rmse"],
                 m["metrics"]["cos_dist"],
                 m["metrics"]["mag_error"],
+                m["metrics"]["pos@0.7"],
+                m["metrics"]["neg@-0.7"],
             )
             for m in metrics
         ]
         raw_df = pd.DataFrame(
-            rows, columns=["id", "category", "rmse", "cos_dist", "mag_error"]
+            rows,
+            columns=[
+                "id",
+                "category",
+                "rmse",
+                "cos_dist",
+                "mag_error",
+                "pos@0.7",
+                "neg@-0.7",
+            ],
         )
         df = raw_df.groupby("category").mean(numeric_only=True)
         df.loc["unweighted_mean"] = raw_df.mean(numeric_only=True)
@@ -292,7 +305,7 @@ def main(cfg):
         print(out_file)
         # if out_file.exists():
         #     raise ValueError(f"{out_file} already exists...")
-        df.to_csv(out_file, float_format="%.3f")
+        df.to_csv(out_file, float_format="%.4f")
 
         # Log the metrics + table to wandb.
         table = wandb.Table(dataframe=df.reset_index())
@@ -337,7 +350,7 @@ def main(cfg):
         "9393",
     ]
     breakpoint()
-    colors = sorted(["red", "blue", "green"]) * len(xs)
+    colors = sorted(["red"]) * (len(xs) - 6) + ["blue"] * 6
     import matplotlib.pyplot as plt
 
     fig = plt.figure()

@@ -48,7 +48,9 @@ checkpoint:
   # Flowbot half-half
   # run_id: 302dfxe5
   # Flowbot fully closed
-  run_id: 8699d8oe
+  # run_id: 8699d8oe
+  # Flowbot doors
+  run_id: bjhgfn3n
   # run_id: nxe7uxh4  # flowbot
   # run_id: ah26pym3  # traj 1
   # run_id: l5stf32k  # traj 5
@@ -75,7 +77,8 @@ wandb:
   # group: diffuser1
   # group: flowbot_nomask
   # group: flowbot_mixed
-  group: flowbot_closed
+  group: flowbot_heldout
+  # group: flowbot_closed
   # reference: /home/yishu/open_anything_diffusion/logs/train_trajectory/2023-09-14/00-11-03/checkpoints/epoch=3819-step=3002520.ckpt  # diffuser1
   # group: traj7  # traj 5 experiment-y2kdp0hq
   # group: traj1

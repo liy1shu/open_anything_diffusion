@@ -1,4 +1,4 @@
-name: trajectory_artflownet
+name: trajectory_pn++
 lr: 1e-3
 batch_size: 64
 epochs: 200

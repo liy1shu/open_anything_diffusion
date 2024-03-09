@@ -16,6 +16,7 @@ from scipy.spatial.transform import Rotation as R
 from open_anything_diffusion.datasets.flow_trajectory_dataset import (
     compute_flow_trajectory,
 )
+from open_anything_diffusion.metrics.trajectory import normalize_trajectory
 
 
 class PMSuctionSim:
@@ -197,9 +198,11 @@ class PMSuctionSim:
         lower, upper = info[8], info[9]
         curr_pos = self.get_joint_value(target_link)
 
-        print(f"lower: {lower}, upper: {upper}, curr: {curr_pos}")
-
         sign = -1 if upper < 0 else 1
+        print(
+            f"lower: {lower}, upper: {upper}, curr: {curr_pos}, success:{sign * (upper - curr_pos) < 0.001}"
+        )
+
         return sign * (upper - curr_pos) < 0.001
 
     def randomize_joints(self):
@@ -355,20 +358,40 @@ def run_trial(
 
     # First, reset the environment.
     env.reset()
+    # Joint information
+    info = p.getJointInfo(
+        env.render_env.obj_id,
+        env.render_env.link_name_to_index[target_link],
+        env.render_env.client_id,
+    )
+    init_angle, target_angle = info[8], info[9]
 
     # Sometimes doors collide with themselves. It's dumb.
     if (
         raw_data.category == "Door"
         and raw_data.semantics.by_name(target_link).type == "hinge"
     ):
-        env.set_joint_state(target_link, 0.2)
+        env.set_joint_state(target_link, init_angle)
+        # env.set_joint_state(target_link, 0.2)
 
     if raw_data.semantics.by_name(target_link).type == "hinge":
-        env.set_joint_state(target_link, 0.05)
+        env.set_joint_state(target_link, init_angle)
+        # env.set_joint_state(target_link, 0.05)
 
     # Predict the flow on the observation.
     pc_obs = env.render(filter_nonobj_pts=True, n_pts=n_pts)
     rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
+
+    if init_angle == target_angle:  # Not movable
+        return None, TrialResult(
+            success=False,
+            assertion=False,
+            contact=False,
+            init_angle=0,
+            final_angle=0,
+            now_angle=0,
+            metric=0,
+        )
 
     # breakpoint()
     if gt_model is None:  # GT Flow model
@@ -394,6 +417,7 @@ def run_trial(
     # assert link_ixs.any()
     if not link_ixs.any():
         p.disconnect(physicsClientId=env.render_env.client_id)
+        print("link_ixs finds no point")
         return None, TrialResult(
             success=False,
             assertion=False,
@@ -424,6 +448,11 @@ def run_trial(
         if website:
             segmented_flow = np.zeros_like(pred_flow)
             segmented_flow[link_ixs] = pred_flow[link_ixs]
+            segmented_flow = np.array(
+                normalize_trajectory(
+                    torch.from_numpy(np.expand_dims(segmented_flow, 1))
+                ).squeeze()
+            )
             animation.add_trace(
                 torch.as_tensor(P_world),
                 torch.as_tensor([P_world]),
@@ -479,6 +508,7 @@ def run_trial(
                 if website:
                     p.stopStateLogging(log_id)
                 p.disconnect(physicsClientId=env.render_env.client_id)
+                print("link_ixs finds no point")
                 return None, TrialResult(
                     assertion=False,
                     success=False,
@@ -493,6 +523,11 @@ def run_trial(
                 # Add pcd to flow animation
                 segmented_flow = np.zeros_like(pred_flow)
                 segmented_flow[link_ixs] = pred_flow[link_ixs]
+                segmented_flow = np.array(
+                    normalize_trajectory(
+                        torch.from_numpy(np.expand_dims(segmented_flow, 1))
+                    ).squeeze()
+                )
                 animation.add_trace(
                     torch.as_tensor(P_world),
                     torch.as_tensor([P_world]),
@@ -521,12 +556,6 @@ def run_trial(
             break
 
     # calculate the metrics
-    info = p.getJointInfo(
-        env.render_env.obj_id,
-        env.render_env.link_name_to_index[target_link],
-        env.render_env.client_id,
-    )
-    init_angle, target_angle = info[8], info[9]
     curr_pos = env.get_joint_value(target_link)
     metric = (curr_pos - init_angle) / (target_angle - init_angle)
     metric = min(metric, 1)

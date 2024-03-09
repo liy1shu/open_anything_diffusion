@@ -1,4 +1,4 @@
-name: trajectory_artflownet
+name: trajectory_pn++
 batch_size: 64
 trajectory_len: 1
 # mask_input_channel: True

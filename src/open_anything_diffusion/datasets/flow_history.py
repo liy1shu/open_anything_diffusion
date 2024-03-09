@@ -1,25 +1,26 @@
-import os
-
 import lightning as L
 import rpad.partnet_mobility_utils.dataset as rpd
 import torch_geometric.loader as tgl
 from rpad.pyg.dataset import CachedByKeyDataset
 
-from open_anything_diffusion.datasets.flow_trajectory_dataset_pyg import (
-    FlowTrajectoryPyGDataset,
+from open_anything_diffusion.datasets.flow_history_dataset_pyg import (
+    FlowHistoryPyGDataset,
 )
 
 
 # Create FlowBot datamodule
-class FlowTrajectoryDataModule(L.LightningDataModule):
+class FlowHistoryDataModule(L.LightningDataModule):
     def __init__(
         self,
         root,
         batch_size,
         num_workers,
         n_proc,
+        trajectory_datasets,
         randomize_camera: bool = True,
         trajectory_len: int = 1,
+        max_trial_num: int = 100,
+        correct_thres: float = 0.8,
         seed: int = 42,
         special_req: str = None,
         toy_dataset: dict = None,
@@ -27,31 +28,20 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         super().__init__()
         self.batch_size = batch_size
         self.seed = seed
-        print(
-            FlowTrajectoryPyGDataset.get_processed_dir(
-                True,
-                randomize_camera,
-                trajectory_len,
-                special_req,
-                toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
-            )
-        )
         self.train_dset = CachedByKeyDataset(
-            dset_cls=FlowTrajectoryPyGDataset,
+            dset_cls=FlowHistoryPyGDataset,
             dset_kwargs=dict(
-                root=os.path.join(root, "raw"),
-                split="umpnet-train-train"
-                if toy_dataset is None
-                else toy_dataset["train-train"],
-                randomize_camera=randomize_camera,
-                trajectory_len=trajectory_len,
-                special_req=special_req,
+                trajectory_dataset=trajectory_datasets.train_dset.dataset,
+                max_trial_num=max_trial_num,
+                correct_thres=correct_thres,
+                no_history_ratio=0.4,
+                seed=seed,
             ),
             data_keys=rpd.UMPNET_TRAIN_TRAIN_OBJ_IDS
             if toy_dataset is None
             else toy_dataset["train-train"],
             root=root,
-            processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
+            processed_dirname=FlowHistoryPyGDataset.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,
@@ -66,21 +56,19 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         )
 
         self.train_val_dset = CachedByKeyDataset(
-            dset_cls=FlowTrajectoryPyGDataset,
+            dset_cls=FlowHistoryPyGDataset,
             dset_kwargs=dict(
-                root=os.path.join(root, "raw"),
-                split="umpnet-train-train"
-                if toy_dataset is None
-                else toy_dataset["train-train"],
-                randomize_camera=randomize_camera,
-                trajectory_len=trajectory_len,
-                special_req=special_req,
+                trajectory_dataset=trajectory_datasets.train_val_dset.dataset,
+                max_trial_num=max_trial_num,
+                correct_thres=correct_thres,
+                no_history_ratio=0.4,
+                seed=seed,
             ),
             data_keys=rpd.UMPNET_TRAIN_TRAIN_OBJ_IDS
             if toy_dataset is None
             else toy_dataset["train-train"],
             root=root,
-            processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
+            processed_dirname=FlowHistoryPyGDataset.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,
@@ -94,21 +82,19 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         )
 
         self.val_dset = CachedByKeyDataset(
-            dset_cls=FlowTrajectoryPyGDataset,
+            dset_cls=FlowHistoryPyGDataset,
             dset_kwargs=dict(
-                root=os.path.join(root, "raw"),
-                split="umpnet-train-test"
-                if toy_dataset is None
-                else toy_dataset["train-test"],
-                randomize_camera=randomize_camera,
-                trajectory_len=trajectory_len,
-                special_req=special_req,
+                trajectory_dataset=trajectory_datasets.val_dset.dataset,
+                max_trial_num=max_trial_num,
+                correct_thres=correct_thres,
+                no_history_ratio=0,
+                seed=seed,
             ),
             data_keys=rpd.UMPNET_TRAIN_TEST_OBJ_IDS
             if toy_dataset is None
             else toy_dataset["train-test"],
             root=root,
-            processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
+            processed_dirname=FlowHistoryPyGDataset.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,
@@ -122,19 +108,19 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         )
 
         self.unseen_dset = CachedByKeyDataset(
-            dset_cls=FlowTrajectoryPyGDataset,
+            dset_cls=FlowHistoryPyGDataset,
             dset_kwargs=dict(
-                root=os.path.join(root, "raw"),
-                split="umpnet-test" if toy_dataset is None else toy_dataset["test"],
-                randomize_camera=randomize_camera,
-                trajectory_len=trajectory_len,
-                special_req=special_req,
+                trajectory_dataset=trajectory_datasets.unseen_dset.dataset,
+                max_trial_num=max_trial_num,
+                correct_thres=correct_thres,
+                no_history_ratio=1,
+                seed=seed,
             ),
             data_keys=rpd.UMPNET_TEST_OBJ_IDS
             if toy_dataset is None
             else toy_dataset["test"],
             root=root,
-            processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
+            processed_dirname=FlowHistoryPyGDataset.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,

@@ -2,7 +2,7 @@ from diffuser import TrainingConfig, TrajDiffuser
 
 config = TrainingConfig()
 diffuser = TrajDiffuser(config, train_batch_num=1)
-diffuser.load_model("./closed_diffusion_fullset_ckpt.pth")
+diffuser.load_model("./door_diffusion_ckpt_valbest.pth")
 
 # diffuser.load_model('/home/yishu/open_anything_diffusion/logs/train_trajectory/2023-08-31/16-13-10/checkpoints/epoch=399-step=314400.ckpt')
 
@@ -66,20 +66,22 @@ train_dataloader = datamodule.train_dataloader()
 train_val_dataloader = datamodule.train_val_dataloader()
 unseen_dataloader = datamodule.unseen_dataloader()
 
-trial_time = 100
-total_metrics = {
-    "rmse": 0,
-    "cos_dist": 0,
-    "mag_error": 0,
-    "flow_loss": 0,
-    "multimodal": 0,
-}
-multimodal_cnt = 0
-total_sample_cnt = 0
+trial_time = 50
 all_directions = []
 import tqdm
 
 for dataloader in [train_val_dataloader, unseen_dataloader]:
+    total_metrics = {
+        "best_rmse": 0,
+        "best_cosine": 0,
+        "best_mag": 0,
+        "best_flow_loss": 0,
+        "multimodal_ratio": 0,
+        "pos_rate": 0,
+        "neg_rate": 0,
+    }
+    multimodal_cnt = 0
+    total_sample_cnt = 0
     for sample in tqdm.tqdm(dataloader):
         total_sample_cnt += 1
         # best_metric = {
@@ -107,7 +109,7 @@ for dataloader in [train_val_dataloader, unseen_dataloader]:
         # metric = diffuser.predict([sample], vis=False)
         best_metric = diffuser.predict_wta([sample], trial_times=trial_time)
         all_directions += best_metric["all_directions"]
-        multimodal = best_metric["multimodal"]
+        multimodal = best_metric["multimodal_ratio"]
         # print(metric)
         # if i!=0 and metric['cos_dist'] * best_metric['cos_dist'] < 0:  # predicts different directions
         #     multimodal = True
@@ -116,16 +118,19 @@ for dataloader in [train_val_dataloader, unseen_dataloader]:
         #     for metric_type in best_metric.keys():
         #         best_metric[metric_type] = metric[metric_type]
 
-        print(multimodal, best_metric["cos_dist"])
+        # print(multimodal, best_metric["best_cosine"])
         for metric_type in total_metrics.keys():
             total_metrics[metric_type] += best_metric[metric_type]  # .item()
 
         multimodal_cnt += multimodal
 
+    for metric_type in total_metrics.keys():
+        # total_metrics[metric_type] /= len(train_val_dataloader)
+        total_metrics[metric_type] /= total_sample_cnt
 
-for metric_type in total_metrics.keys():
-    # total_metrics[metric_type] /= len(train_val_dataloader)
-    total_metrics[metric_type] /= total_sample_cnt
+    print(total_metrics)
+    print(multimodal_cnt)
+
 
 # Scatter plot
 ys = [d.item() for d in all_directions]
@@ -165,17 +170,18 @@ xs = [
     "9263",
     "9393",
 ]
-xs = sorted(xs * trial_time)
+
+all_xs = []
+for x in xs:
+    all_xs += [x] * trial_time
 # breakpoint()
-colors = sorted(["red", "blue", "green"] * trial_time) * len(xs)
+colors = sorted(["red"]) * trial_time * (len(xs) - 6) + ["blue"] * trial_time * 6
+# colors = sorted(["red", "blue", "yellow"] * trial_time) * len(all_xs)
 import matplotlib.pyplot as plt
 
 fig = plt.figure()
 ax = fig.add_axes([0.1, 0.1, 0.8, 0.8])
 ax.axhline(y=0)
-plt.scatter(xs, ys, s=5, c=colors[: len(ys)])
+plt.scatter(all_xs, ys, s=5, c=colors[: len(ys)])
 plt.xticks(rotation=90)
-plt.savefig("./allclosed_closed_cos_stats.jpeg")
-
-print(total_metrics)
-print(multimodal_cnt)
+plt.savefig("./door_cos_stats.jpeg")

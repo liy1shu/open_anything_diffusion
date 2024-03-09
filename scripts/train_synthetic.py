@@ -1,56 +1,35 @@
+# Simple synthetic dataset training
 import json
 
 import hydra
 import lightning as L
 import omegaconf
-
-# Modules
 import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import wandb
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
-from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
-from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
-from open_anything_diffusion.models.flow_diffuser_dgdit import (
-    FlowTrajectoryDiffusionModule_DGDiT,
-)
-from open_anything_diffusion.models.flow_diffuser_dit import (
-    FlowTrajectoryDiffusionModule_DiT,
-)
-
-# Regression Models
-from open_anything_diffusion.models.flow_predictor import FlowPredictorTrainingModule
-
-# Diffusion Models
+from open_anything_diffusion.datasets.synthetic_dataset import SyntheticDataModule
 from open_anything_diffusion.models.flow_trajectory_diffuser import (
-    FlowTrajectoryDiffusionModule_PN2,
+    FlowTrajectoryDiffusionModule,
 )
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowTrajectoryTrainingModule,
 )
-from open_anything_diffusion.models.modules.dit_models import DGDiT, DiT
 from open_anything_diffusion.utils.script_utils import (
     PROJECT_ROOT,
     LogPredictionSamplesCallback,
     match_fn,
 )
 
-data_module_class = {
-    "flowbot": FlowBotDataModule,
-    "trajectory": FlowTrajectoryDataModule,
-}
 training_module_class = {
-    "flowbot_pn++": FlowPredictorTrainingModule,
-    "trajectory_pn++": FlowTrajectoryTrainingModule,
-    "trajectory_diffuser_pn++": FlowTrajectoryDiffusionModule_PN2,
-    "trajectory_diffuser_dgdit": FlowTrajectoryDiffusionModule_DGDiT,
-    "trajectory_diffuser_dit": FlowTrajectoryDiffusionModule_DiT,
+    "synthetic_artflownet": FlowTrajectoryTrainingModule,
+    "synthetic_diffuser": FlowTrajectoryDiffusionModule,
 }
 
 
-@hydra.main(config_path="../configs", config_name="train", version_base="1.3")
+@hydra.main(config_path="../configs", config_name="train_synthetic", version_base="1.3")
 def main(cfg):
     print(
         json.dumps(
@@ -84,69 +63,9 @@ def main(cfg):
     ######################################################################
 
     trajectory_len = 1 if cfg.dataset.name == "flowbot" else cfg.training.trajectory_len
-    # Create FlowBot dataset
-    datamodule = data_module_class[cfg.dataset.name](
-        root=cfg.dataset.data_dir,
-        batch_size=cfg.training.batch_size,
-        num_workers=cfg.resources.num_workers,
-        n_proc=cfg.resources.n_proc_per_worker,
-        seed=cfg.seed,
-        trajectory_len=trajectory_len,  # Only used when training trajectory model
-        special_req="fully-closed",  # special_req="half-half"
-        # # TODO: only for toy training!!!!!
-        # toy_dataset = {
-        #     "id": "door-1",
-        #     "train-train": ["8994", "9035"],
-        #     "train-test": ["8994", "9035"],
-        #     "test": ["8867"],
-        #     # "train-train": ["8867"],
-        #     # "train-test": ["8867"],
-        #     # "test": ["8867"],
-        # }
-        # toy_dataset = {
-        #     "id": "door-full",
-        #     "train-train": ["8867", "8877", "8893", "8897", "8903", "8919", "8930", "8936", "8961", "8983", "8994", "8997", "9003", "9016", "9032", "9035", "9041", "9065", "9070", "9107", "9117", "9127", "9128", "9148", "9164", "9168", "9263", "9277", "9280", "9281", "9288", "9386", "9388", "9393", "9410"],
-        #     "train-test": ["8994"],
-        #     "test": ["9035"],
-        # }
-        toy_dataset={
-            "id": "door-full-new",
-            "train-train": [
-                "8877",
-                "8893",
-                "8897",
-                "8903",
-                "8919",
-                "8930",
-                "8961",
-                "8997",
-                "9016",
-                "9032",
-                "9035",
-                "9041",
-                "9065",
-                "9070",
-                "9107",
-                "9117",
-                "9127",
-                "9128",
-                "9148",
-                "9164",
-                "9168",
-                "9277",
-                "9280",
-                "9281",
-                "9288",
-                "9386",
-                "9388",
-                "9410",
-            ],
-            "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
-            "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
-        },
-    )
+    # Create synthetic dataset
+    datamodule = SyntheticDataModule(batch_size=cfg.training.batch_size, seed=cfg.seed)
     train_loader = datamodule.train_dataloader()
-    cfg.training.train_sample_number = len(train_loader)
     train_val_loader = datamodule.train_val_dataloader()
     val_loader = datamodule.val_dataloader()
     unseen_loader = datamodule.unseen_dataloader()
@@ -170,40 +89,16 @@ def main(cfg):
     # Model architecture is dataset-dependent, so we have a helper
     # function to create the model (while separating out relevant vals).
 
-    if "diffuser" in cfg.model.name:
-        if "pn++" in cfg.model.name:
-            in_channels = 3 * cfg.training.trajectory_len + cfg.model.time_embed_dim
-        else:
-            in_channels = (
-                3 * cfg.training.trajectory_len
-            )  # Will add 3 as input channel in diffuser
+    if cfg.model.name == "diffuser":
+        in_channels = 3 * cfg.training.trajectory_len + cfg.model.time_embed_dim
     else:
         in_channels = 1 if cfg.training.mask_input_channel else 0
 
-    if "pn++" in cfg.model.name:
-        network = pnp.PN2Dense(
-            in_channels=in_channels,
-            out_channels=3 * trajectory_len,
-            p=pnp.PN2DenseParams(),
-        )
-    elif "dgdit" in cfg.model.name:
-        network = DGDiT(
-            in_channels=in_channels,
-            depth=5,
-            hidden_size=128,
-            patch_size=1,
-            num_heads=4,
-            n_points=cfg.dataset.n_points,
-        )
-    elif "dit" in cfg.model.name:
-        network = DiT(
-            in_channels=in_channels,
-            depth=5,
-            hidden_size=128,
-            num_heads=4,
-            learn_sigma=True,
-            n_points=cfg.dataset.n_points,
-        ).cuda()
+    network = pnp.PN2Dense(
+        in_channels=in_channels,
+        out_channels=3 * trajectory_len,
+        p=pnp.PN2DenseParams(),
+    )
 
     ######################################################################
     # Create the training module.

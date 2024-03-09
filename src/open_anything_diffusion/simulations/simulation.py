@@ -277,7 +277,7 @@ def trial_with_diffuser(
 if __name__ == "__main__":
     np.random.seed(42)
     # trial_flow(obj_id="41083", available_joints=["link_0"], gui=True, website=False)
-    # trial_gt_trajectory(obj_id="35059", traj_len=15, gui=True)
+    trial_gt_trajectory(obj_id="8867", traj_len=30, gui=False)
     # trial_with_prediction(obj_id="35059", traj_len=15, n_step=1, gui=True)
 
     # length = 15
@@ -286,15 +286,15 @@ if __name__ == "__main__":
     #     ckpt_file="/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-19/14-51-22/checkpoints/epoch=94-step=74670-val_loss=0.00-weights-only.ckpt",
     # )
 
-    length = 1
-    network_1 = create_network(
-        traj_len=1,
-        ckpt_file="/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt",
-    )
-    figs, trial_results = trial_with_prediction(
-        obj_id="102044", network=network_1, n_step=15, gui=False, all_joint=True
-    )
-    print(trial_results)
+    # length = 1
+    # network_1 = create_network(
+    #     traj_len=1,
+    #     ckpt_file="/home/yishu/open_anything_diffusion/scripts/logs/train_flowbot/2023-07-18/23-52-34/checkpoints/epoch=77-step=61308-val_loss=0.00-weights-only.ckpt",
+    # )
+    # figs, trial_results = trial_with_prediction(
+    #     obj_id="102044", network=network_1, n_step=15, gui=False, all_joint=True
+    # )
+    # print(trial_results)
 
     # figs[list(figs.keys())[0]].show()
     # trial_with_prediction(obj_id="35059", network=network_15, n_step=1, gui=False, all_joint=False)

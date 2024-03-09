@@ -17,7 +17,7 @@ object_to_link = load_obj_and_link()
 
 config = TrainingConfig()
 diffuser = TrajDiffuser(config, train_batch_num=1)
-diffuser.load_model("./closed_diffusion_fullset_ckpt.pth")
+diffuser.load_model("./half_diffusion_fullset_ckpt_backup.pth")
 
 diffuser_simulator = TrajDiffuserSimWrapper(diffuser)
 
@@ -27,6 +27,7 @@ count = 0
 import tqdm
 
 object_ids = [
+    "8867",
     "8877",
     "8893",
     "8897",
@@ -65,7 +66,6 @@ object_ids = [
 for obj_id in tqdm.tqdm(object_ids):
     if obj_id not in object_to_link.keys():
         continue
-    count += 1
     available_links = object_to_link[obj_id]
     trial_figs, trial_results = trial_with_diffuser(
         obj_id=obj_id,
@@ -74,8 +74,18 @@ for obj_id in tqdm.tqdm(object_ids):
         gui=False,
         website=True,
         all_joint=True,
-        available_joints=available_links,
+        # available_joints=available_links,
     )
-    print(trial_results)
 
-    # breakpoint()
+    for result in trial_results:
+        if not result.contact:
+            continue
+        success_rate += result.success
+        norm_dist += result.metric
+        count += 1
+    # all_trial_results.append(trial_results)
+    # all_trial_figs.append(trial_figs)
+
+print(success_rate / count, norm_dist / count)
+
+breakpoint()

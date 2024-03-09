@@ -43,6 +43,44 @@ def load_obj_and_link():
 id_to_cat = load_obj_id_to_category()
 object_to_link = load_obj_and_link()
 
+object_ids = [  # Door
+    "8867",
+    "8877",
+    "8893",
+    "8897",
+    "8903",
+    "8919",
+    "8930",
+    "8961",
+    "8997",
+    "9016",
+    "9032",
+    "9035",
+    "9041",
+    "9065",
+    "9070",
+    "9107",
+    "9117",
+    "9127",
+    "9128",
+    "9148",
+    "9164",
+    "9168",
+    "9277",
+    "9280",
+    "9281",
+    "9288",
+    "9386",
+    "9388",
+    "9410",
+    "8867",
+    "8983",
+    "8994",
+    "9003",
+    "9263",
+    "9393",
+]
+
 
 @hydra.main(config_path="../configs", config_name="eval_sim", version_base="1.3")
 def main(cfg):
@@ -149,6 +187,9 @@ def main(cfg):
     category_counts = {}
     # for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
     for obj_id, available_links in tqdm.tqdm(list(object_to_link.items())):
+        if obj_id not in object_ids:  # For Door dataset
+            continue
+
         obj_cat = id_to_cat[obj_id]
         if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
             continue
@@ -159,18 +200,22 @@ def main(cfg):
             n_step=30,
             gui=cfg.gui,
             all_joint=True,
-            available_joints=available_links,
+            # available_joints=available_links,   # Don't use this for doors
             website=cfg.website,
         )
 
+        # breakpoint()
         if len(trial_results) == 0:  # If nothing succeeds
             continue
 
         # Wandb table
         if obj_cat not in category_counts.keys():
             category_counts[obj_cat] = 0
-        category_counts[obj_cat] += len(trial_results)
+        # category_counts[obj_cat] += len(trial_results)
         for result in trial_results:
+            if result.contact == False:
+                continue
+            category_counts[obj_cat] += 1
             metric_df.loc[obj_cat]["success_rate"] += result.success
             metric_df.loc[obj_cat]["norm_dist"] += result.metric
 

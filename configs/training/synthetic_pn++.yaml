@@ -1,0 +1,8 @@
+name: synthetic_pn++
+lr: 1e-3
+batch_size: 1
+epochs: 10000
+check_val_every_n_epoch: 5
+trajectory_len: 1
+mode: "delta"
+mask_input_channel: False

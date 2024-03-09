@@ -22,7 +22,7 @@ defaults:
 
 seed: 42
 gui: False
-website: False
+website: True
 
 # This is the checkpoint that we're evaluating. You can change this to whatever you need,
 # like if you want multiple checkpoints simultaneously, etc.
@@ -38,7 +38,10 @@ checkpoint:
   # run_id: yiel0na4   # traj 15
   # run_id: zmnrssob  # traj 20
 
-  run_id: 4xb2c95k
+
+  # Flowbot half-half
+  run_id: 302dfxe5
+  # run_id: 4xb2c95k
 
   # Diffuser:
   # run_id: 5pp284n8  # traj1
@@ -68,7 +71,8 @@ wandb:
   # group: traj5  # traj 5 experiment-y2kdp0hq
   # group: traj20
   # group: diffuser10
-  group: flowbot_nomask
+  # group: flowbot_nomask
+  group: flowbot_mixed
   # group: flowbot  # flowbot
   # group: traj1  # traj 1 experiment-sb009k1f
   # group: traj20  # traj 5 experiment-y2kdp0hq

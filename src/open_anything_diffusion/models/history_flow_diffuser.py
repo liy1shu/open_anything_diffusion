@@ -1,3 +1,4 @@
+# History encoder + diffuser
 from typing import Any, Dict
 
 import lightning as L
@@ -18,10 +19,11 @@ from open_anything_diffusion.metrics.trajectory import (
     flow_metrics,
     normalize_trajectory,
 )
+from open_anything_diffusion.models.modules.history_encoder import HistoryEncoder
 
 
-# Flow diffuser with PN++
-class FlowTrajectoryDiffusionModule_PN2(L.LightningModule):
+# Flow predictor
+class FlowHistoryDiffusionModule(L.LightningModule):
     def __init__(self, network, training_cfg, model_cfg) -> None:
         super().__init__()
         # Training params
@@ -29,8 +31,15 @@ class FlowTrajectoryDiffusionModule_PN2(L.LightningModule):
         self.lr = training_cfg.lr
         self.mode = training_cfg.mode
         self.traj_len = training_cfg.trajectory_len
+        self.history_input_len = training_cfg.history_input_len
+        self.history_embed_len = training_cfg.history_embed_len
         self.epochs = training_cfg.epochs
         self.train_sample_number = training_cfg.train_sample_number
+
+        # History encoder
+        self.history_encoder = HistoryEncoder(
+            input_dim=self.history_input_len, output_dim=self.history_embed_len
+        )
 
         # Diffuser training param
         self.lr_warmup_steps = training_cfg.lr_warmup_steps
@@ -38,12 +47,14 @@ class FlowTrajectoryDiffusionModule_PN2(L.LightningModule):
         # Diffuser params
         self.sample_size = 1200
         self.time_embed_dim = model_cfg.time_embed_dim
-        self.in_channels = 3 * self.traj_len + self.time_embed_dim
+        self.in_channels = (
+            3 * self.traj_len + self.time_embed_dim + self.history_embed_len
+        )
         assert (
             network.in_ch == self.in_channels
         ), "Network input channels doesn't match expectation"
 
-        # positional time embeddings
+        # Positional time embeddings
         flip_sin_to_cos = model_cfg.flip_sin_to_cos
         freq_shift = model_cfg.freq_shift
         self.time_proj = Timesteps(64, flip_sin_to_cos, freq_shift)
@@ -56,12 +67,14 @@ class FlowTrajectoryDiffusionModule_PN2(L.LightningModule):
             num_train_timesteps=model_cfg.num_train_timesteps
         )
 
-        # self.num_inference_timesteps = model_cfg.num_inference_timesteps
-        # self.noise_scheduler_inference = DDIMScheduler(
-        #     num_train_timesteps=model_cfg.num_train_timesteps,
-        # )
-
     def forward(self, data) -> torch.Tensor:  # type: ignore
+        if data.history_embed is None:
+            history = torch.cat(
+                [data.trial_points, data.trial_directions, data.trial_results], dim=-1
+            )
+            history_embed = self.history_encoder(history)
+            data.history_embed = history_embed.repeat(0, self.sample_size)
+
         timesteps = data.timesteps
         traj_noise = data.traj_noise  # bs * 1200, traj_len, 3
         traj_noise = torch.flatten(traj_noise, start_dim=1, end_dim=2)
@@ -71,7 +84,9 @@ class FlowTrajectoryDiffusionModule_PN2(L.LightningModule):
         t_emb = t_emb.unsqueeze(1).repeat(1, self.sample_size, 1)  # bs, 1200, 64
         t_emb = torch.flatten(t_emb, start_dim=0, end_dim=1)  # bs * 1200, 64
 
-        data.x = torch.cat([traj_noise, t_emb], dim=-1)  # bs * 1200, 64 + 3 * traj_len
+        data.x = torch.cat(
+            [traj_noise, data.history_embed, t_emb], dim=-1
+        )  # bs * 1200, 64 + 3 * traj_len
 
         # Run the model.
         pred = self.backbone(data)
@@ -86,7 +101,9 @@ class FlowTrajectoryDiffusionModule_PN2(L.LightningModule):
             f_target = batch.point
         f_target = f_target  # .float()
 
-        # noisy_flow = batch.traj_noise
+        # Initial history condition: No condition
+        batch.history_embed = torch.zeros(batch.delta.shape[0], self.history_embed_len)
+
         # Predict the noise.
         noise = batch.pure_noise  # The added noise
         noise_pred = self(batch)
@@ -115,31 +132,21 @@ class FlowTrajectoryDiffusionModule_PN2(L.LightningModule):
         # torch.eval()
         bs = batch.delta.shape[0] // self.sample_size
         batch.traj_noise = torch.randn_like(batch.delta, device=self.device)  # .float()
-        # batch.traj_noise = normalize_trajectory(batch.traj_noise)
-        # breakpoint()
 
-        # import time
-        # batch_time = 0
-        # model_time = 0
-        # noise_scheduler_time = 0
+        # Initial history condition: No condition
+        batch.history_embed = torch.zeros(batch.delta.shape[0], self.history_embed_len)
 
-        # self.noise_scheduler_inference.set_timesteps(self.num_inference_timesteps)
-        # print(self.noise_scheduler_inference.timesteps)
-        # for t in self.noise_scheduler_inference.timesteps:
         for t in self.noise_scheduler.timesteps:
             # tm = time.time()
             batch.timesteps = torch.zeros(bs, device=self.device) + t  # Uniform t steps
             batch.timesteps = batch.timesteps.long()
-            # batch_time += time.time() - tm
 
-            # tm = time.time()
             model_output = self(batch)  # bs * 1200, traj_len * 3
             model_output = model_output.reshape(
                 model_output.shape[0], -1, 3
             )  # bs * 1200, traj_len, 3
 
             batch.traj_noise = self.noise_scheduler.step(
-                # batch.traj_noise = self.noise_scheduler_inference.step(
                 model_output.reshape(
                     -1, self.sample_size, model_output.shape[1], model_output.shape[2]
                 ),
@@ -163,7 +170,6 @@ class FlowTrajectoryDiffusionModule_PN2(L.LightningModule):
 
         f_target = f_target  # .float()
         f_target = normalize_trajectory(f_target)
-        # print(f_pred[f_ix], batch.delta[f_ix])
         loss = artflownet_loss(f_pred, f_target, n_nodes)
 
         # Compute some metrics on flow-only regions.
@@ -295,7 +301,7 @@ class FlowTrajectoryDiffusionModule_PN2(L.LightningModule):
         return {"diffuser_plot": fig}
 
 
-class FlowTrajectoryDiffuserInferenceModule_PN2(L.LightningModule):
+class FlowHistoryDiffuserInferenceModule(L.LightningModule):
     def __init__(self, network, inference_cfg, model_cfg) -> None:
         super().__init__()
         # Inference params
@@ -529,10 +535,10 @@ class FlowTrajectoryDiffuserInferenceModule_PN2(L.LightningModule):
         return metric_dict, all_directions
 
 
-class FlowTrajectoryDiffuserSimulationModule_PN2(L.LightningModule):
+class FlowHistoryDiffuserSimulationModule(L.LightningModule):
     def __init__(self, network, inference_cfg, model_cfg) -> None:
         super().__init__()
-        self.model = FlowTrajectoryDiffuserInferenceModule_PN2(
+        self.model = FlowHistoryDiffuserInferenceModule(
             network, inference_cfg, model_cfg
         )
 

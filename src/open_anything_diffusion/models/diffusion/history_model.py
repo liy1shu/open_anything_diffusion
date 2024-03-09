@@ -18,13 +18,16 @@ class PointNetOutput(BaseOutput):
     sample: torch.FloatTensor
 
 
-class PNDiffuser(ModelMixin, ConfigMixin):
+class PNHistoryDiffuser(ModelMixin, ConfigMixin):
     @register_to_config
-    def __init__(self, in_channels, time_embed_dim, traj_len, cond_emb_dims=64):
-        super(PNDiffuser, self).__init__()
+    def __init__(
+        self, in_channels, time_embed_dim, history_embed_dim, traj_len, cond_emb_dims=64
+    ):
+        super(PNHistoryDiffuser, self).__init__()
         self.in_channels = in_channels
         self.sample_size = 1200
         self.time_embed_dim = time_embed_dim
+        self.history_embed_dim = history_embed_dim
         self.traj_len = traj_len
 
         # positional time embeddings
@@ -34,18 +37,19 @@ class PNDiffuser(ModelMixin, ConfigMixin):
         timestep_input_dim = 64
         self.time_embedding = TimestepEmbedding(timestep_input_dim, time_embed_dim)
 
-        # self.condition_encoder = pnp.PN2Dense(
-        #     in_channels=1,
-        #     out_channels=cond_emb_dims,
-        #     p=pnp.PN2DenseParams(),
-        # )
+        self.condition_encoder = pnp.PN2Dense(
+            in_channels=1,
+            out_channels=cond_emb_dims,
+            p=pnp.PN2DenseParams(),
+        )
 
         self.predictor = pnp.PN2Dense(
             # in_channels = self.in_channels + timestep_input_dim,
-            in_channels=self.in_channels + time_embed_dim,
+            in_channels=self.in_channels + time_embed_dim + history_embed_dim,
             out_channels=3 * self.traj_len,
             p=pnp.PN2DenseParams(),
         )
+        # self.act = torch.nn.SiLU()
 
     def forward(
         self,
@@ -85,32 +89,29 @@ class PNDiffuser(ModelMixin, ConfigMixin):
 
         t_emb = t_emb.unsqueeze(-1).repeat(1, 1, self.sample_size)
 
-        # #  condition embedding
-        # cond_emb = self.condition_encoder(condition)
-
-        # concatenate embeddings
-        # breakpoint()
         context = context.to(noisy_input.device)
+        history_info = context.history_embed.permute(1, 0).unsqueeze(0)
         context.x = torch.cat(
-            (torch.flatten(noisy_input, start_dim=1, end_dim=2), t_emb), dim=1
-        )  # (B, 3 + 64 , N)
-        # breakpoint()
+            (torch.flatten(noisy_input, start_dim=1, end_dim=2), history_info, t_emb),
+            dim=1,
+        )  # (B, 3 + 32 + 64 , N)
+        # context.x = torch.cat(
+        #     (torch.flatten(noisy_input, start_dim=1, end_dim=2), t_emb), dim=1
+        # )  # (B, 3 + 64 , N)
         context.x = torch.flatten(context.x.permute(0, 2, 1), start_dim=0, end_dim=1)
+
+        # x = self.act(self.predictor(context))
         x = self.predictor(context)
         x = x.reshape(-1, self.sample_size, 3, self.traj_len).permute(0, 2, 3, 1)
-        # breakpoint()
         if not return_dict:
             return (x,)
 
-        # if torch.sum(torch.abs(x[0, :, 0, :2])) > 1e4:
-        #     breakpoint()
-        # print(x[0, :, 0, :2])
         return PointNetOutput(sample=x)
         # return x
 
 
 if __name__ == "__main__":
-    model = PNDiffuser(3, 64, 1, 64)
+    model = PNHistoryDiffuser(3, 64, 1, 64)
 
     from typing import Protocol, cast
 

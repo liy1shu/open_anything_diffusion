@@ -1,12 +1,13 @@
-mode: train
+mode: train_synthetic
 
 # This is somewhat arbitrary.
 job_type: ${mode}_${dataset.name}
 
 defaults:
   # Each of these have their own configuration parameters.
-  - dataset: trajectory
-  - model: diffuser_dgdit
+  - dataset: synthetic
+  - model: diffuser
+  # - model: artflownet
 
   # We assume a different training config for each dataset/model pair.
   - training: ${dataset}_${model}

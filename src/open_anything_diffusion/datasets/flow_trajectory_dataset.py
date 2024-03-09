@@ -139,6 +139,7 @@ class FlowTrajectoryDataset:
                 Defaults to None.
         """
         self._dataset = pmd.PCDataset(root=root, split=split, renderer="pybullet")
+        self._ids = self._dataset._ids
         self.randomize_joints = randomize_joints
         self.randomize_camera = randomize_camera
         self.trajectory_len = trajectory_len
