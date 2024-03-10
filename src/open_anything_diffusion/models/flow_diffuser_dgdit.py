@@ -1,6 +1,7 @@
 from typing import Any, Dict
 
 import lightning as L
+import plotly.express as px
 import plotly.graph_objects as go
 import rpad.visualize_3d.plots as v3p
 import torch
@@ -45,6 +46,8 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
         self.diffusion = create_diffusion(
             timestep_respacing=None, diffusion_steps=self.num_train_timesteps
         )
+
+        self.cosine_distribution_cache = {"x": [], "y": [], "colors": []}
 
     def forward(self, batch: tgd.Batch, mode):
         x = (
@@ -214,6 +217,7 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
         return (
             f_pred.reshape(bs, self.sample_size, self.traj_len, 3)[chosen_id],
             loss[chosen_id],
+            cos_dist.tolist(),
         )
 
     def configure_optimizers(self):
@@ -245,19 +249,35 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
 
     def validation_step(self, batch: tgd.Batch, batch_id, dataloader_idx=0):  # type: ignore
         self.eval()
+
+        # Clean cache for a new eval dataloader
+        if batch_id == 0:
+            self.cosine_distribution_cache["x"] = []
+            self.cosine_distribution_cache["y"] = []
+            self.cosine_distribution_cache["colors"] = []
+
         dataloader_names = ["val", "train", "unseen"]
         name = dataloader_names[dataloader_idx]
         with torch.no_grad():
             f_pred, loss = self.predict(batch, name)
             # print("predict:", f_pred.shape)
             if self.wta:
-                f_pred, loss = self.predict_wta(batch, name)
-                # print("predict wta:", f_pred.shape)
+                f_pred, loss, cosines = self.predict_wta(batch, name)
+                self.cosine_distribution_cache["x"] += [batch_id] * self.wta_trial_times
+                self.cosine_distribution_cache["y"] += cosines
+                self.cosine_distribution_cache["colors"] += [
+                    "blue" if batch_id % 2 == 0 else "red"
+                ] * self.wta_trial_times
         # breakpoint()
-        return {"preds": f_pred, "loss": loss}
+        return {
+            "preds": f_pred,
+            "loss": loss,
+            "cosine_cache": self.cosine_distribution_cache,
+        }
 
     @staticmethod
-    def make_plots(preds, batch: tgd.Batch) -> Dict[str, go.Figure]:
+    def make_plots(preds, batch: tgd.Batch, cosine_cache=None) -> Dict[str, go.Figure]:
+        # 1) Make the flow visualization plots
         obj_id = batch.id
         pos = (
             batch.point[:, -2, :].numpy() if batch.point.shape[1] >= 2 else batch.pos
@@ -316,7 +336,27 @@ class FlowTrajectoryDiffusionModule_DGDiT(L.LightningModule):
 
         fig.update_layout(title=f"Object {obj_id}")
 
-        return {"diffuser_plot": fig}
+        # 2) Make the cosine distribution plots
+        # table = wandb.Table(data=data, columns=["class_x", "class_y"])
+        # wandb.log({"my_custom_id": wandb.plot.scatter(table, "class_x", "class_y")})
+        cos_fig = None
+        if (
+            cosine_cache is not None and len(cosine_cache["x"]) != 0
+        ):  # Does wta, and needs plots
+            # The following Matplotlib code won't work because some matplotlib version issue (3.4.3 would work, but the version is old)
+            # cos_fig = plt.figure()
+            # ax = cos_fig.add_axes([0.1, 0.1, 0.8, 0.8])
+            # plt.ylim((-1, 1))
+            # ax.axhline(y=0)
+            # ax.axhline(y=0.7)
+            # ax.axhline(y=-0.7)
+            # plt.scatter(cosine_cache["x"], cosine_cache["y"], s=5, c=cosine_cache["colors"])
+            cos_fig = px.scatter(
+                x=cosine_cache["x"], y=cosine_cache["y"], color=cosine_cache["colors"]
+            )
+            cos_fig.update_layout(yaxis_range=[-1, 1])
+
+        return {"diffuser_plot": fig, "cosine_distribution_plot": cos_fig}
 
 
 class FlowTrajectoryDiffuserInferenceModule_DGDiT(L.LightningModule):
@@ -387,8 +427,6 @@ class FlowTrajectoryDiffuserInferenceModule_DGDiT(L.LightningModule):
         all_multimodal = 0
         all_pos_cosine = 0
         all_neg_cosine = 0
-
-        all_directions = []  # dataloader * trial_times
 
         for id, orig_sample in tqdm.tqdm(enumerate(dataloader)):
             bs = orig_sample.delta.shape[0] // self.sample_size
@@ -494,7 +532,7 @@ class FlowTrajectoryDiffuserInferenceModule_DGDiT(L.LightningModule):
             add_dataloader_idx=False,
             batch_size=len(batch),
         )
-        return metric_dict, all_directions
+        return metric_dict, cos_dist.tolist()  # dataloader * trial_times
 
 
 class FlowTrajectoryDiffuserSimulationModule_DGDiT(L.LightningModule):

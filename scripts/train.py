@@ -84,6 +84,58 @@ def main(cfg):
     ######################################################################
 
     trajectory_len = 1 if cfg.dataset.name == "flowbot" else cfg.training.trajectory_len
+    # 1) toy_dataset = None
+    # 2) toy_dataset = {
+    #     "id": "door-1",
+    #     "train-train": ["8994", "9035"],
+    #     "train-test": ["8994", "9035"],
+    #     "test": ["8867"],
+    #     # "train-train": ["8867"],
+    #     # "train-test": ["8867"],
+    #     # "test": ["8867"],
+    # }
+    # 3) toy_dataset = {
+    #     "id": "door-full",
+    #     "train-train": ["8867", "8877", "8893", "8897", "8903", "8919", "8930", "8936", "8961", "8983", "8994", "8997", "9003", "9016", "9032", "9035", "9041", "9065", "9070", "9107", "9117", "9127", "9128", "9148", "9164", "9168", "9263", "9277", "9280", "9281", "9288", "9386", "9388", "9393", "9410"],
+    #     "train-test": ["8994"],
+    #     "test": ["9035"],
+    # }
+    toy_dataset = {
+        "id": "door-full-new",
+        "train-train": [
+            "8877",
+            "8893",
+            "8897",
+            "8903",
+            "8919",
+            "8930",
+            "8961",
+            "8997",
+            "9016",
+            "9032",
+            "9035",
+            "9041",
+            "9065",
+            "9070",
+            "9107",
+            "9117",
+            "9127",
+            "9128",
+            "9148",
+            "9164",
+            "9168",
+            "9277",
+            "9280",
+            "9281",
+            "9288",
+            "9386",
+            "9388",
+            "9410",
+        ],
+        "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+        "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+    }
+    special_req = "half-half"  # "fully-closed"
     # Create FlowBot dataset
     datamodule = data_module_class[cfg.dataset.name](
         root=cfg.dataset.data_dir,
@@ -92,65 +144,46 @@ def main(cfg):
         n_proc=cfg.resources.n_proc_per_worker,
         seed=cfg.seed,
         trajectory_len=trajectory_len,  # Only used when training trajectory model
-        special_req="fully-closed",  # special_req="half-half"
+        special_req=special_req,  # special_req="fully-closed"
         # # TODO: only for toy training!!!!!
-        # toy_dataset = {
-        #     "id": "door-1",
-        #     "train-train": ["8994", "9035"],
-        #     "train-test": ["8994", "9035"],
-        #     "test": ["8867"],
-        #     # "train-train": ["8867"],
-        #     # "train-test": ["8867"],
-        #     # "test": ["8867"],
-        # }
-        # toy_dataset = {
-        #     "id": "door-full",
-        #     "train-train": ["8867", "8877", "8893", "8897", "8903", "8919", "8930", "8936", "8961", "8983", "8994", "8997", "9003", "9016", "9032", "9035", "9041", "9065", "9070", "9107", "9117", "9127", "9128", "9148", "9164", "9168", "9263", "9277", "9280", "9281", "9288", "9386", "9388", "9393", "9410"],
-        #     "train-test": ["8994"],
-        #     "test": ["9035"],
-        # }
-        toy_dataset={
-            "id": "door-full-new",
-            "train-train": [
-                "8877",
-                "8893",
-                "8897",
-                "8903",
-                "8919",
-                "8930",
-                "8961",
-                "8997",
-                "9016",
-                "9032",
-                "9035",
-                "9041",
-                "9065",
-                "9070",
-                "9107",
-                "9117",
-                "9127",
-                "9128",
-                "9148",
-                "9164",
-                "9168",
-                "9277",
-                "9280",
-                "9281",
-                "9288",
-                "9386",
-                "9388",
-                "9410",
-            ],
-            "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
-            "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
-        },
+        toy_dataset=toy_dataset,
     )
     train_loader = datamodule.train_dataloader()
     cfg.training.train_sample_number = len(train_loader)
     eval_sample_bsz = 1 if cfg.training.wta else cfg.training.batch_size
     train_val_loader = datamodule.train_val_dataloader(bsz=eval_sample_bsz)
-    val_loader = datamodule.val_dataloader(bsz=eval_sample_bsz)
-    unseen_loader = datamodule.unseen_dataloader(bsz=eval_sample_bsz)
+
+    if special_req == "half-half":
+        # For half-half training:
+        # - Unseen loader: randomly opened doors
+        # - Validation loader: fully closed doors
+        randomly_opened_datamodule = data_module_class[cfg.dataset.name](
+            root=cfg.dataset.data_dir,
+            batch_size=cfg.training.batch_size,
+            num_workers=cfg.resources.num_workers,
+            n_proc=cfg.resources.n_proc_per_worker,
+            seed=cfg.seed,
+            trajectory_len=trajectory_len,  # Only used when training trajectory model
+            special_req=None,  # special_req="fully-closed"
+            toy_dataset=toy_dataset,
+        )
+        fully_closed_datamodule = data_module_class[cfg.dataset.name](
+            root=cfg.dataset.data_dir,
+            batch_size=cfg.training.batch_size,
+            num_workers=cfg.resources.num_workers,
+            n_proc=cfg.resources.n_proc_per_worker,
+            seed=cfg.seed,
+            trajectory_len=trajectory_len,  # Only used when training trajectory model
+            special_req="fully-closed",  # special_req="fully-closed"
+            toy_dataset=toy_dataset,
+        )
+        val_loader = fully_closed_datamodule.val_dataloader(bsz=eval_sample_bsz)
+        unseen_loader = randomly_opened_datamodule.unseen_dataloader(
+            bsz=eval_sample_bsz
+        )
+    else:
+        val_loader = datamodule.val_dataloader(bsz=eval_sample_bsz)
+        unseen_loader = datamodule.unseen_dataloader(bsz=eval_sample_bsz)
 
     ######################################################################
     # Create the network(s) which will be trained by the Training Module.
@@ -269,6 +302,11 @@ def main(cfg):
             LogPredictionSamplesCallback(
                 logger=logger,
                 eval_per_n_epoch=cfg.training.check_val_every_n_epoch,
+                eval_dataloader_lengths=[
+                    len(val_loader),
+                    len(train_val_loader),
+                    len(unseen_loader),
+                ],
             ),
             # This checkpoint callback saves the latest model during training, i.e. so we can resume if it crashes.
             # It saves everything, and you can load by referencing last.ckpt.
@@ -284,9 +322,7 @@ def main(cfg):
             ModelCheckpoint(
                 dirpath=cfg.lightning.checkpoint_dir,
                 filename="{epoch}-{step}-{val_loss:.2f}-weights-only",
-                monitor="val/flow_loss"
-                if cfg.model.name == "diffuser"
-                else "val/flow_loss",
+                monitor="val_wta/flow_loss" if cfg.training.wta else "val/flow_loss",
                 mode="min",
                 save_weights_only=True,
             ),
