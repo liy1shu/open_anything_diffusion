@@ -219,7 +219,7 @@ def main(cfg):
             in_channels=in_channels,
             out_channels=3 * trajectory_len,
             p=pnp.PN2DenseParams(),
-        )
+        ).cuda()
     elif "dgdit" in cfg.model.name:
         network = DGDiT(
             in_channels=in_channels,
@@ -228,7 +228,7 @@ def main(cfg):
             patch_size=1,
             num_heads=4,
             n_points=cfg.dataset.n_points,
-        )
+        ).cuda()
     elif "dit" in cfg.model.name:
         network = DiT(
             in_channels=in_channels + 3,

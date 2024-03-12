@@ -423,7 +423,7 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
 
     # For winner takes it all evaluation
     @torch.inference_mode()
-    def predict_wta(self, dataloader, mode="delta", trial_times=20):
+    def predict_wta(self, dataloader, mode="delta", trial_times=50):
         all_rmse = 0
         all_cos_dist = 0
         all_mag_error = 0
@@ -449,7 +449,7 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
                 batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
                 .permute(0, 2, 1)
                 .float()
-                .cuda()
+                .to(self.device)
             )
             model_kwargs = dict(pos=pos)
 
@@ -473,11 +473,11 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
             mask = mask.reshape(-1, self.sample_size).to("cuda")
 
             n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
-            f_ix = batch.mask.bool()
-            if self.mode == "delta":
-                f_target = batch.delta
-            elif self.mode == "point":
-                f_target = batch.point
+            f_ix = batch.mask.bool().to(self.device)
+            if mode == "delta":
+                f_target = batch.delta.to(self.device)
+            elif mode == "point":
+                f_target = batch.point.to(self.device)
 
             f_target = f_target  # .float()
             f_target = normalize_trajectory(f_target)
@@ -498,8 +498,8 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
             mag_error = mag_error.reshape(bs, -1).mean(-1)
 
             chosen_id = torch.min(flow_loss, 0)[1]  # index
-            pos_cosine = torch.sum((cos_dist - 0.7) > 0)
-            neg_cosine = torch.sum((cos_dist + 0.7) < 0)
+            pos_cosine = torch.sum((cos_dist - 0.7) > 0) / bs
+            neg_cosine = torch.sum((cos_dist + 0.7) < 0) / bs
             multimodal = 1 if (pos_cosine != 0 and neg_cosine != 0) else 0
 
             print(

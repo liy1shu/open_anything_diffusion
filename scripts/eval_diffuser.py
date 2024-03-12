@@ -16,8 +16,14 @@ from open_anything_diffusion.metrics.trajectory import (
     flow_metrics,
     normalize_trajectory,
 )
+from open_anything_diffusion.models.flow_diffuser_dgdit import (
+    FlowTrajectoryDiffuserInferenceModule_DGDiT,
+)
+from open_anything_diffusion.models.flow_diffuser_dit import (
+    FlowTrajectoryDiffuserInferenceModule_DiT,
+)
 from open_anything_diffusion.models.flow_trajectory_diffuser import (
-    FlowTrajectoryDiffuserInferenceModule,
+    FlowTrajectoryDiffuserInferenceModule_PN2,
 )
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
 
@@ -26,7 +32,9 @@ data_module_class = {
 }
 
 inference_module_class = {
-    "trajectory": FlowTrajectoryDiffuserInferenceModule,
+    "trajectory_diffuser_pn++": FlowTrajectoryDiffuserInferenceModule_PN2,
+    "trajectory_diffuser_dgdit": FlowTrajectoryDiffuserInferenceModule_DGDiT,
+    "trajectory_diffuser_dit": FlowTrajectoryDiffuserInferenceModule_DiT,
 }
 
 

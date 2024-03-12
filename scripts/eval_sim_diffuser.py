@@ -19,7 +19,7 @@ import wandb
 from rpad.visualize_3d import html
 
 from open_anything_diffusion.models.flow_trajectory_diffuser import (
-    FlowTrajectoryDiffuserSimulationModule,
+    FlowTrajectoryDiffuserSimulationModule_PN2,
 )
 from open_anything_diffusion.simulations.simulation import trial_with_diffuser
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
@@ -130,7 +130,7 @@ def main(cfg):
     # network.load_state_dict(
     #     {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items()}
     # )
-    model = FlowTrajectoryDiffuserSimulationModule(
+    model = FlowTrajectoryDiffuserSimulationModule_PN2(
         network, inference_cfg=cfg.inference, model_cfg=cfg.model
     ).cuda()
     model.load_from_ckpt(ckpt_file)
