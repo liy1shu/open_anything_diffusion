@@ -9,6 +9,7 @@ import lightning as L
 import numpy as np
 import omegaconf
 import pandas as pd
+import plotly.graph_objects as go
 import torch
 import tqdm
 import wandb
@@ -18,28 +19,76 @@ from open_anything_diffusion.simulations.simulation import trial_gt_trajectory
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
 
 
-def load_obj_id_to_category():
-    # Extract existing classes.
-    with open("./scripts/umpnet_data_split.json", "r") as f:
-        data = json.load(f)
-
+def load_obj_id_to_category(toy_dataset=None):
     id_to_cat = {}
-    for _, category_dict in data.items():
-        for category, split_dict in category_dict.items():
-            for _, id_list in split_dict.items():
-                for id in id_list:
-                    id_to_cat[id] = category
+    if toy_dataset is None:
+        # Extract existing classes.
+        with open(f"{PROJECT_ROOT}/scripts/umpnet_data_split.json", "r") as f:
+            data = json.load(f)
+
+        for _, category_dict in data.items():
+            for category, split_dict in category_dict.items():
+                for _, id_list in split_dict.items():
+                    for id in id_list:
+                        id_to_cat[id] = category
+
+    else:
+        with open(f"{PROJECT_ROOT}/scripts/umpnet_object_list.json", "r") as f:
+            data = json.load(f)
+        for split in ["train-train", "train-test"]:
+            for id in toy_dataset[split]:
+                id_to_cat[id] = split
     return id_to_cat
 
 
-def load_obj_and_link():
+def load_obj_and_link(id_to_cat):
     with open("./scripts/umpnet_object_list.json", "r") as f:
         object_link_json = json.load(f)
+    # with open(f"{PROJECT_ROOT}/scripts/movable_links_005.json", "r") as f:
+    #     object_link_json = json.load(f)
+    for id in id_to_cat.keys():
+        if id not in object_link_json.keys():
+            object_link_json[id] = []
     return object_link_json
 
 
-id_to_cat = load_obj_id_to_category()
-object_to_link = load_obj_and_link()
+toy_dataset = {
+    "id": "door-full-new",
+    "train-train": [
+        "8877",
+        "8893",
+        "8897",
+        "8903",
+        "8919",
+        "8930",
+        "8961",
+        "8997",
+        "9016",
+        "9032",
+        "9035",
+        "9041",
+        "9065",
+        "9070",
+        "9107",
+        "9117",
+        "9127",
+        "9128",
+        "9148",
+        "9164",
+        "9168",
+        "9277",
+        "9280",
+        "9281",
+        "9288",
+        "9386",
+        "9388",
+        "9410",
+    ],
+    "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+    "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+}
+id_to_cat = load_obj_id_to_category(toy_dataset)
+object_to_link = load_obj_and_link(id_to_cat)
 
 
 @hydra.main(config_path="../configs", config_name="eval_sim_gt", version_base="1.3")
@@ -128,8 +177,15 @@ def main(cfg):
         columns=["count", "success_rate", "norm_dist"],
     )
     category_counts = {}
+    movable_link = {}
+    sim_trajectories = []
+    link_names = []
     # for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
     for obj_id, available_links in tqdm.tqdm(list(object_to_link.items())):
+        if obj_id not in id_to_cat.keys():
+            continue
+        # if len(available_links) == 0:
+        #     continue
         obj_cat = id_to_cat[obj_id]
         if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
             continue
@@ -142,18 +198,24 @@ def main(cfg):
         #     gui=cfg.gui,
         #     website=cfg.website,
         # )
-        trial_figs, trial_results = trial_gt_trajectory(
+        (
+            trial_figs,
+            trial_results,
+            this_movable_links,
+            sim_trajectory,
+        ) = trial_gt_trajectory(
             obj_id=obj_id,
             traj_len=cfg.inference.trajectory_len,
             n_steps=30,
             all_joint=True,
-            available_joints=available_links,
+            # available_joints=available_links,
             gui=cfg.gui,
             website=cfg.website,
         )
-
-        if len(trial_results) == 0:  # If nothing succeeds
-            continue
+        sim_trajectories += sim_trajectory
+        link_names += [f"link_{i}" for i in range(len(sim_trajectory))]
+        # link_names += [f"{obj_id}_{link}" for link in available_links]
+        movable_link[obj_id] = this_movable_links
 
         # Wandb table
         if obj_cat not in category_counts.keys():
@@ -165,15 +227,19 @@ def main(cfg):
 
         if cfg.website:
             # Website visualization
-            for joint_name, fig in trial_figs.items():
+            for id, (joint_name, fig) in enumerate(trial_figs.items()):
                 tag = f"{obj_id}_{joint_name}"
                 doc.add_plot(obj_cat, tag, fig)
                 doc.add_video(
-                    obj_cat, tag, f"http://128.2.178.238:9000/video_assets/{tag}.mp4"
+                    obj_cat,
+                    f"{tag}{'_NO CONTACT' if not trial_results[id].contact else ''}",
+                    f"http://128.2.178.238:9000/video_assets/{tag}.mp4",
                 )
             # print(trial_results)
             doc.write_site("./logs/simu_eval")
 
+        if category_counts[obj_cat] == 0:
+            continue
         wandb_df = metric_df.copy(deep=True)
         for obj_cat in category_counts.keys():
             wandb_df.loc[obj_cat]["success_rate"] /= category_counts[obj_cat]
@@ -183,6 +249,7 @@ def main(cfg):
         table = wandb.Table(dataframe=wandb_df.reset_index())
         run.log({f"simulation_metric_table": table})
 
+    print(movable_link)
     # for obj_cat in category_counts.keys():
     #     metric_df.loc[obj_cat]["success_rate"] /= category_counts[obj_cat]
     #     metric_df.loc[obj_cat]["norm_dist"] /= category_counts[obj_cat]
@@ -190,6 +257,17 @@ def main(cfg):
 
     # table = wandb.Table(dataframe=metric_df)
     # run.log({f"simulation_metric_table": table})
+
+    traces = []
+    xs = list(range(31))
+    for id, sim_trajectory in enumerate(sim_trajectories):
+        traces.append(
+            go.Scatter(x=xs, y=sim_trajectory, mode="lines", name=link_names[id])
+        )
+
+    layout = go.Layout(title="Simulation Trajectory Figure")
+    fig = go.Figure(data=traces, layout=layout)
+    wandb.log({"sim_traj_figure": wandb.Plotly(fig)})
 
 
 if __name__ == "__main__":

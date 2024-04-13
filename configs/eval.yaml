@@ -1,14 +1,15 @@
 mode: eval
 
 # This is somewhat arbitrary.
-job_type: ${mode}_${dataset.name}_${model.name}_wta
+job_type: ${mode}_${dataset.name}_${model.name} #_wta
 
 defaults:
   # Each of these have their own configuration parameters.
   # - dataset: flowbot
   - dataset: trajectory
-  - model: diffuser_pn++ #pn++
-  # - model: diffuser
+  # - model: diffuser_pn++ #pn++
+  - model: diffuser_dit
+  # - model: pn++
 
   # A set of inference settings for the model. Note that these may be different
   # from / or a subset of the training settings. This is that we don't have to
@@ -59,9 +60,17 @@ checkpoint:
   # run_id: yiel0na4   # traj 15
   # run_id: zmnrssob  # traj 20
 
-  run_id: 3hyzie1q  # door half-half diffusion pn++
+  # run_id: 3hyzie1q  # door half-half diffusion pn++
   # run_id: riwpizim  # door half-half diffusion dgdit
   # run_id: 6ftiy79l  # door half-half diffusion dit
+  # run_id: 7be7n97m    # door half-half flowbot
+
+  # run_id: gyhracxt   # fullset half-half flowbot
+  # run_id: 1n4zm8rt   # fullset half-half diffusion dit
+  # run_id: 9v8h8jsn   # fullset half-half diffusion dgdit
+
+  # run_id: libhkzgt   # fullset half-half newsplit flowbot
+  run_id: 9s85cqw7   # fullset half-half newsplit diffusion dit
 
   reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
 
@@ -88,6 +97,8 @@ wandb:
   # group: traj7  # traj 5 experiment-y2kdp0hq
   # group: traj1
 
-  group: door-half-half
+  # group: door-half-half
+  # group: fullset-half-half
+  group: fullset-half-half-newsplit
 
 metric_output_dir: './logs'

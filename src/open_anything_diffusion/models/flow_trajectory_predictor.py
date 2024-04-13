@@ -112,16 +112,25 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
         # Compute some metrics on flow-only regions.
         rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
 
-        self.log_dict(
-            {
-                f"{mode}/loss": loss,
-                f"{mode}/rmse": rmse,
-                f"{mode}/cosine_similarity": cos_dist,
-                f"{mode}/mag_error": mag_error,
-            },
-            add_dataloader_idx=False,
-            batch_size=len(batch),
-        )
+        if mode == "train_train":
+            self.log_dict(
+                {
+                    f"train/loss": loss,
+                },
+                add_dataloader_idx=False,
+                batch_size=len(batch),
+            )
+        else:
+            self.log_dict(
+                {
+                    f"{mode}/flow_loss": loss,
+                    f"{mode}/rmse": rmse,
+                    f"{mode}/cosine_similarity": cos_dist,
+                    f"{mode}/mag_error": mag_error,
+                },
+                add_dataloader_idx=False,
+                batch_size=len(batch),
+            )
         return f_pred, loss
 
     def configure_optimizers(self):
@@ -133,7 +142,7 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
 
     def training_step(self, batch: tgd.Batch, batch_id):  # type: ignore
         self.train()
-        _, loss = self._step(batch, "train")
+        _, loss = self._step(batch, "train_train")
         return loss
 
     def validation_step(self, batch: tgd.Batch, batch_id, dataloader_idx=0):  # type: ignore
@@ -141,10 +150,10 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
         dataloader_names = ["val", "train", "unseen"]
         name = dataloader_names[dataloader_idx]
         f_pred, loss = self._step(batch, name)
-        return {"preds": f_pred, "loss": loss}
+        return {"preds": f_pred, "loss": loss, "cosine_cache": None}
 
     @staticmethod
-    def make_plots(preds, batch: tgd.Batch) -> Dict[str, go.Figure]:
+    def make_plots(preds, batch: tgd.Batch, cosine_cache=None) -> Dict[str, go.Figure]:
         obj_id = batch.id
         pos = (
             batch.point[:, -2, :].numpy() if batch.point.shape[1] >= 2 else batch.pos

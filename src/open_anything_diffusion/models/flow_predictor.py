@@ -45,16 +45,25 @@ class FlowPredictorTrainingModule(L.LightningModule):
         # import pdb
         # pdb.set_trace()
 
-        self.log_dict(
-            {
-                f"{mode}/loss": loss,
-                f"{mode}/rmse": rmse,
-                f"{mode}/cosine_similarity": cos_dist,
-                f"{mode}/mag_error": mag_error,
-            },
-            add_dataloader_idx=False,
-            batch_size=len(batch),
-        )
+        if mode == "train_train":
+            self.log_dict(
+                {
+                    f"train/loss": loss,
+                },
+                add_dataloader_idx=False,
+                batch_size=len(batch),
+            )
+        else:
+            self.log_dict(
+                {
+                    f"{mode}/flow_loss": loss,
+                    f"{mode}/rmse": rmse,
+                    f"{mode}/cosine_similarity": cos_dist,
+                    f"{mode}/mag_error": mag_error,
+                },
+                add_dataloader_idx=False,
+                batch_size=len(batch),
+            )
 
         return f_pred.reshape(len(batch), -1, 3), loss
 
@@ -75,10 +84,10 @@ class FlowPredictorTrainingModule(L.LightningModule):
         dataloader_names = ["val", "train", "unseen"]
         name = dataloader_names[dataloader_idx]
         f_pred, loss = self._step(batch, name)
-        return {"preds": f_pred, "loss": loss}
+        return {"preds": f_pred, "loss": loss, "cosine_cache": None}
 
     @staticmethod
-    def make_plots(preds, batch: tgd.Batch) -> Dict[str, go.Figure]:
+    def make_plots(preds, batch: tgd.Batch, cosine_cache=None) -> Dict[str, go.Figure]:
         obj_id = batch.id
         pos = batch.pos.numpy()
         mask = batch.mask.numpy()
@@ -174,8 +183,8 @@ class FlowPredictorInferenceModule(L.LightningModule):
         assert len(xyz.shape) == 2
         assert len(mask.shape) == 1
 
-        data = Data(pos=xyz, mask=mask)
-        batch = Batch.from_data_list([data])
+        data = tgd.Data(pos=xyz, mask=mask)
+        batch = tgd.Batch.from_data_list([data])
         batch = batch.to(self.device)
         self.eval()
         with torch.no_grad():

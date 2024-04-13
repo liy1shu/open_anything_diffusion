@@ -108,7 +108,8 @@ def main(cfg):
         #     # "train-test": ["8867"],
         #     # "test": ["8867"],
         # }
-        toy_dataset=toy_dataset,
+        # toy_dataset=toy_dataset,   # 1) Eval on doors
+        toy_dataset=None,  # 2) Eval on all
     )
     randomly_opened_datamodule = FlowTrajectoryDataModule(
         root="/home/yishu/datasets/partnet-mobility",
@@ -127,7 +128,8 @@ def main(cfg):
         #     # "train-test": ["8867"],
         #     # "test": ["8867"],
         # }
-        toy_dataset=toy_dataset,
+        # toy_dataset=toy_dataset,   # 1) Eval on doors
+        toy_dataset=None,  # 2) Eval on all
     )
 
     ######################################################################
@@ -210,7 +212,10 @@ def main(cfg):
         ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
     else:
         ckpt_file = checkpoint_reference
-    # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory/2023-09-11/19-08-26/checkpoints/epoch=5004-step=3933930.ckpt'
+
+    # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-23/02-47-04/checkpoints/epoch=299-step=235800-val_loss=0.00-weights-only.ckpt'
+    # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dgdit/2024-03-23/02-45-56/checkpoints/epoch=259-step=408720-val_loss=0.00-weights-only.ckpt'
+    # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt'
 
     # # Load the network weights.
     # ckpt = torch.load(ckpt_file)
@@ -263,9 +268,18 @@ def main(cfg):
     ######################################################################
 
     dataloaders = [
-        # (datamodule.train_val_dataloader(), "train"),
-        (fully_closed_datamodule.val_dataloader(bsz=1), "val"),
-        (randomly_opened_datamodule.unseen_dataloader(bsz=1), "test"),
+        # # (datamodule.train_val_dataloader(), "train"),
+        # (fully_closed_datamodule.val_dataloader(bsz=1), "val"),
+        # (randomly_opened_datamodule.unseen_dataloader(bsz=1), "test"),
+        # # Fullset closed
+        # (fully_closed_datamodule.val_dataloader(bsz=1), "val_closed"),
+        # (fully_closed_datamodule.unseen_dataloader(bsz=1), "test_closed"),
+        # # Fullset open
+        # (randomly_opened_datamodule.val_dataloader(bsz=1), "val_open"),
+        # (randomly_opened_datamodule.unseen_dataloader(bsz=1), "test_open"),
+        # Train set
+        (fully_closed_datamodule.train_val_dataloader(bsz=1), "train_closed"),
+        (randomly_opened_datamodule.train_val_dataloader(bsz=1), "train_opened"),
     ]
 
     trial_time = 50

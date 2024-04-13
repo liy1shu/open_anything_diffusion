@@ -128,8 +128,13 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
         # print(f_pred[f_ix], batch.delta[f_ix])
         loss = artflownet_loss(f_pred, f_target, n_nodes)
 
+        if torch.sum(f_ix) == 0:  # No point
+            return f_pred, loss
+
         # Compute some metrics on flow-only regions.
         rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
+        if torch.isnan(cos_dist):
+            breakpoint()
 
         self.log_dict(
             {
@@ -176,8 +181,8 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
         f_pred = normalize_trajectory(f_pred)
 
         # Compute the loss.
-        mask = batch.mask == 1
-        mask = mask.reshape(-1, self.sample_size).to("cuda")
+        # mask = batch.mask == 1
+        # mask = mask.reshape(-1, self.sample_size).to("cuda")
 
         n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
         f_ix = batch.mask.bool()
@@ -191,6 +196,15 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
 
         # print(f_pred[f_ix], batch.delta[f_ix])
         loss = artflownet_loss(f_pred, f_target, n_nodes, reduce=False)
+        flow_loss = loss.reshape(bs, -1).mean(-1)
+        chosen_id = torch.min(flow_loss, 0)[1]  # index
+
+        if torch.sum(f_ix) == 0:  # No point
+            return (
+                f_pred.reshape(bs, self.sample_size, self.traj_len, 3)[chosen_id],
+                loss[chosen_id],
+                [],
+            )
 
         # Compute some metrics on flow-only regions.
         rmse, cos_dist, mag_error = flow_metrics(
@@ -199,12 +213,11 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
 
         # Aggregate the results
         # Choose the one with smallest flow loss
-        flow_loss = loss.reshape(bs, -1).mean(-1)
+
         rmse = rmse.reshape(bs, -1).mean(-1)
         cos_dist = cos_dist.reshape(bs, -1).mean(-1)
         mag_error = mag_error.reshape(bs, -1).mean(-1)
 
-        chosen_id = torch.min(flow_loss, 0)[1]  # index
         pos_cosine = torch.sum((cos_dist - 0.7) > 0) / bs
         neg_cosine = torch.sum((cos_dist + 0.7) < 0) / bs
         multimodal = 1 if (pos_cosine != 0 and neg_cosine != 0) else 0
@@ -270,11 +283,11 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
             f_pred, loss = self.predict(batch, name)
             if self.wta:
                 f_pred, loss, cosines = self.predict_wta(batch, name)
-                self.cosine_distribution_cache["x"] += [batch_id] * self.wta_trial_times
+                self.cosine_distribution_cache["x"] += [batch_id] * len(cosines)
                 self.cosine_distribution_cache["y"] += cosines
                 self.cosine_distribution_cache["colors"] += [
                     "blue" if batch_id % 2 == 0 else "red"
-                ] * self.wta_trial_times
+                ] * len(cosines)
         # breakpoint()
         return {
             "preds": f_pred,
@@ -394,7 +407,8 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
     @torch.no_grad()
     def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:  # type: ignore
         # torch.eval()
-        bs = batch.delta.shape[0] // self.sample_size
+        self.eval()
+        bs = batch.pos.shape[0] // self.sample_size
         z = torch.randn(
             bs, 3 * self.traj_len, self.sample_size, device=self.device
         )  # .float()
@@ -431,6 +445,7 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
         all_multimodal = 0
         all_pos_cosine = 0
         all_neg_cosine = 0
+        valid_sample_cnt = 0
 
         for id, orig_sample in tqdm.tqdm(enumerate(dataloader)):
             bs = orig_sample.delta.shape[0] // self.sample_size
@@ -474,6 +489,9 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
 
             n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
             f_ix = batch.mask.bool().to(self.device)
+            if torch.sum(f_ix) == 0:
+                continue
+            valid_sample_cnt += 1
             if mode == "delta":
                 f_target = batch.delta.to(self.device)
             elif mode == "point":
@@ -519,13 +537,13 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
             all_flow_loss += flow_loss[chosen_id].item()
 
         metric_dict = {
-            f"flow_loss": all_flow_loss / len(dataloader),
-            f"rmse": all_rmse / len(dataloader),
-            f"cosine_similarity": all_cos_dist / len(dataloader),
-            f"mag_error": all_mag_error / len(dataloader),
-            f"multimodal": all_multimodal / len(dataloader),
-            f"pos@0.7": all_pos_cosine / len(dataloader),
-            f"neg@0.7": all_neg_cosine / len(dataloader),
+            f"flow_loss": all_flow_loss / valid_sample_cnt,
+            f"rmse": all_rmse / valid_sample_cnt,
+            f"cosine_similarity": all_cos_dist / valid_sample_cnt,
+            f"mag_error": all_mag_error / valid_sample_cnt,
+            f"multimodal": all_multimodal / valid_sample_cnt,
+            f"pos@0.7": all_pos_cosine / valid_sample_cnt,
+            f"neg@0.7": all_neg_cosine / valid_sample_cnt,
         }
 
         self.log_dict(

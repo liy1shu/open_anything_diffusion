@@ -100,41 +100,45 @@ def main(cfg):
     #     "train-test": ["8994"],
     #     "test": ["9035"],
     # }
-    toy_dataset = {
-        "id": "door-full-new",
-        "train-train": [
-            "8877",
-            "8893",
-            "8897",
-            "8903",
-            "8919",
-            "8930",
-            "8961",
-            "8997",
-            "9016",
-            "9032",
-            "9035",
-            "9041",
-            "9065",
-            "9070",
-            "9107",
-            "9117",
-            "9127",
-            "9128",
-            "9148",
-            "9164",
-            "9168",
-            "9277",
-            "9280",
-            "9281",
-            "9288",
-            "9386",
-            "9388",
-            "9410",
-        ],
-        "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
-        "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
-    }
+
+    # Full dataset
+    toy_dataset = None
+    # Door dataset
+    # toy_dataset = {
+    #     "id": "door-full-new",
+    #     "train-train": [
+    #         "8877",
+    #         "8893",
+    #         "8897",
+    #         "8903",
+    #         "8919",
+    #         "8930",
+    #         "8961",
+    #         "8997",
+    #         "9016",
+    #         "9032",
+    #         "9035",
+    #         "9041",
+    #         "9065",
+    #         "9070",
+    #         "9107",
+    #         "9117",
+    #         "9127",
+    #         "9128",
+    #         "9148",
+    #         "9164",
+    #         "9168",
+    #         "9277",
+    #         "9280",
+    #         "9281",
+    #         "9288",
+    #         "9386",
+    #         "9388",
+    #         "9410",
+    #     ],
+    #     "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+    #     "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+    # }
     special_req = "half-half"  # "fully-closed"
     # Create FlowBot dataset
     datamodule = data_module_class[cfg.dataset.name](
@@ -149,11 +153,12 @@ def main(cfg):
         toy_dataset=toy_dataset,
     )
     train_loader = datamodule.train_dataloader()
-    cfg.training.train_sample_number = len(train_loader)
+    if "diffuser" in cfg.model.name:
+        cfg.training.train_sample_number = len(train_loader)
     eval_sample_bsz = 1 if cfg.training.wta else cfg.training.batch_size
     train_val_loader = datamodule.train_val_dataloader(bsz=eval_sample_bsz)
 
-    if special_req == "half-half":
+    if special_req == "half-half" and toy_dataset is not None:  # half-half doors
         # For half-half training:
         # - Unseen loader: randomly opened doors
         # - Validation loader: fully closed doors
@@ -181,7 +186,7 @@ def main(cfg):
         unseen_loader = randomly_opened_datamodule.unseen_dataloader(
             bsz=eval_sample_bsz
         )
-    else:
+    else:  # half-half full dataset
         val_loader = datamodule.val_dataloader(bsz=eval_sample_bsz)
         unseen_loader = datamodule.unseen_dataloader(bsz=eval_sample_bsz)
 
