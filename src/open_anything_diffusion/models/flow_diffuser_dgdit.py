@@ -394,6 +394,21 @@ class FlowTrajectoryDiffuserInferenceModule_DGDiT(L.LightningModule):
         )
         return None
 
+    def predict(self, P_world) -> torch.Tensor:  # From pure point cloud
+        data = tgd.Data(
+            pos=torch.from_numpy(P_world).float().cuda(),
+            # mask=torch.ones(P_world.shape[0]).float(),
+        )
+        batch = tgd.Batch.from_data_list([data])
+        # batch = batch.to(self.device)
+        # batch.x = batch.mask.reshape(len(batch.mask), 1)
+        self.eval()
+        with torch.no_grad():
+            # trajectory = self.model.faster_predict_step(batch, 0)
+            trajectory = self.predict_step(batch, 0)
+        # print("Trajectory prediction shape:", trajectory.shape)
+        return trajectory.cpu()
+
     @torch.no_grad()
     def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:  # type: ignore
         # torch.eval()

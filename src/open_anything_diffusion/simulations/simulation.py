@@ -377,7 +377,8 @@ if __name__ == "__main__":
         learn_sigma=True,
     ).cuda()
 
-    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-10/10-54-13/checkpoints/epoch=459-step=80500-val_loss=0.00-weights-only.ckpt"
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-10/10-54-13/checkpoints/epoch=459-step=80500-val_loss=0.00-weights-only.ckpt"
+    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt"
     from hydra import compose, initialize
 
     initialize(config_path="../../../configs", version_base="1.3")

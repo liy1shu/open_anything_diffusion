@@ -1,7 +1,7 @@
 import os
 
 lines = []
-dir = "/home/yishu/open_anything_diffusion/logs/sim_eval_trajectory_diffuser_dgdit/2024-03-25/04-07-46/logs/simu_eval"
+dir = "/home/yishu/open_anything_diffusion/logs/sim_policies_trajectory_diffuser_dit/2024-04-15/12-53-03/logs/simu_eval"
 for filename in os.listdir(dir):
     if ".html" not in filename:
         continue
@@ -10,7 +10,7 @@ for filename in os.listdir(dir):
         new_lines = []
         for line in f.readlines():
             new_lines.append(
-                line.replace("http://128.2.178.238:9000/", "http://128.2.178.238:9003/")
+                line.replace("http://128.2.178.238:9000/", "http://128.2.178.238:9001/")
             )
 
     with open(path, "w") as f:

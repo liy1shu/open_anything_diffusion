@@ -16,7 +16,6 @@ import tqdm
 import wandb
 from rpad.visualize_3d import html
 
-from open_anything_diffusion.datasets.flowbot import FlowBotDataModule
 from open_anything_diffusion.simulations.simulation import trial_with_prediction
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
 
@@ -178,12 +177,12 @@ def main(cfg):
     # Should be the same one as in training, but we're gonna use val+test
     # dataloaders.
     ######################################################################
-    datamodule = FlowBotDataModule(
-        root=cfg.dataset.data_dir,
-        batch_size=cfg.inference.batch_size,
-        num_workers=cfg.resources.num_workers,
-        n_proc=cfg.resources.n_proc_per_worker,  # Add n_proc
-    )
+    # datamodule = FlowBotDataModule(
+    #     root=cfg.dataset.data_dir,
+    #     batch_size=cfg.inference.batch_size,
+    #     num_workers=cfg.resources.num_workers,
+    #     n_proc=cfg.resources.n_proc_per_worker,  # Add n_proc
+    # )
 
     ######################################################################
     # Set up logging in WandB.

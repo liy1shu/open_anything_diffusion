@@ -532,6 +532,31 @@ class GTTrajectoryModel:
         return torch.from_numpy(trajectory)
 
 
+def choose_grasp_points(raw_pred_flow, raw_point_cloud, filter_edge=False, k=20):
+    pred_flow = raw_pred_flow.clone()
+    point_cloud = raw_point_cloud
+    # Choose top k non-edge grasp points:
+    if filter_edge:  # Need to filter the edge points
+        squared_diff = (
+            point_cloud[:, np.newaxis, :] - point_cloud[np.newaxis, :, :]
+        ) ** 2
+        dists = np.sqrt(np.sum(squared_diff, axis=2))
+        dist_thres = np.percentile(dists, 10)
+        neighbour_points = np.sum(dists < dist_thres, axis=0)
+        invalid_points = neighbour_points < np.percentile(
+            neighbour_points, 30
+        )  # Not edge
+        pred_flow[invalid_points] = 0  # Don't choose these edge points!!!!!
+
+    top_k_point = min(k, len(pred_flow))
+    best_flow_ix = torch.topk(pred_flow.norm(dim=-1), top_k_point)[1]
+    if top_k_point == 1:
+        best_flow_ix = torch.tensor(list(best_flow_ix) * 2)
+    best_flow = pred_flow[best_flow_ix]
+    best_point = point_cloud[best_flow_ix]
+    return best_flow_ix, best_flow, best_point
+
+
 def run_trial(
     env: PMSuctionSim,
     raw_data: PMObject,
@@ -545,7 +570,7 @@ def run_trial(
     gui: bool = False,
 ) -> TrialResult:
     torch.manual_seed(42)
-    sim_trajectory = [0.05] + [0] * (n_steps)  # start from 0.05
+    sim_trajectory = [0.01] + [0] * (n_steps)  # start from 0.05
 
     if website:
         # Flow animation
@@ -567,13 +592,13 @@ def run_trial(
         and raw_data.semantics.by_name(target_link).type == "hinge"
     ):
         env.set_joint_state(
-            target_link, init_angle + 0.05 * (target_angle - init_angle)
+            target_link, init_angle + 0.01 * (target_angle - init_angle)
         )
         # env.set_joint_state(target_link, 0.2)
 
     if raw_data.semantics.by_name(target_link).type == "hinge":
         env.set_joint_state(
-            target_link, init_angle + 0.05 * (target_angle - init_angle)
+            target_link, init_angle + 0.01 * (target_angle - init_angle)
         )
         # env.set_joint_state(target_link, 0.05)
 
@@ -683,26 +708,19 @@ def run_trial(
 
     # The attachment point is the point with the highest flow.
     # best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
-    top_k_point = min(20, len(pred_flow[link_ixs]))
-    best_flow_ix = torch.topk(pred_flow[link_ixs].norm(dim=-1), top_k_point)[1]
-    if top_k_point == 1:
-        best_flow_ix = torch.tensor(list(best_flow_ix) * 2)
-    # print(best_flow_ix)
-    # try:
-    #     best_flow_ix = torch.topk(pred_flow[link_ixs].norm(dim=-1), int(len(pred_flow[link_ixs].norm(dim=-1)) / 2))[1][-1]  # Not on the edge
-    # except:
-    #     best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
-    best_flow = pred_flow[link_ixs][best_flow_ix]
-    best_point = P_world[link_ixs][best_flow_ix]
-    # breakpoint()
+    best_flow_ix, best_flows, best_points = choose_grasp_points(
+        pred_flow[link_ixs], P_world[link_ixs], filter_edge=False, k=20
+    )
 
     # Teleport to an approach pose, approach, the object and grasp.
     if website and not gui:
         # contact = env.teleport_and_approach(best_point, best_flow, video_writer=writer)
-        best_flow_ix, contact = env.teleport(best_point, best_flow, video_writer=writer)
+        best_flow_ix, contact = env.teleport(
+            best_points, best_flows, video_writer=writer
+        )
     else:
         # contact = env.teleport_and_approach(best_point, best_flow)
-        best_flow_ix, contact = env.teleport(best_point, best_flow)
+        best_flow_ix, contact = env.teleport(best_points, best_flows)
     best_flow = pred_flow[link_ixs][best_flow_ix]
     best_point = P_world[link_ixs][best_flow_ix]
     last_step_grasp_point = best_point
@@ -803,17 +821,19 @@ def run_trial(
 
             # Get the best direction.
             # best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
-            top_k_point = min(20, len(pred_flow[link_ixs]))
-            best_flow_ix = torch.topk(pred_flow[link_ixs].norm(dim=-1), top_k_point)[1]
-            if top_k_point == 1:
-                best_flow_ix = torch.tensor(list(best_flow_ix) * 2)
-            # print(best_flow_ix)
-            best_flow = pred_flow[link_ixs][best_flow_ix]
+            best_flow_ix, best_flows, best_points = choose_grasp_points(
+                pred_flow[link_ixs], P_world[link_ixs], filter_edge=False, k=20
+            )
 
             # (1) Strategy 1 - Don't change grasp point
             # (2) Strategy 2 - Change grasp point when leverage difference is large
             lev_diff_thres = 0.2
             move_dist_thres = 0.01
+
+            # # Don't use this policy
+            # lev_diff_thres = 1
+            # move_dist_thres = -10
+
             # Only change if the new point's leverage is a great increase
             gripper_tip_pos = p.getClosestPoints(
                 env.gripper.body_id, env.render_env.obj_id, distance=0.5, linkIndexA=0
@@ -823,7 +843,7 @@ def run_trial(
                 dim=-1
             )
             grasp_point_id = pcd_dist.argmin()
-            lev_diff = best_flow.norm(dim=-1) - pred_flow[link_ixs][
+            lev_diff = best_flows.norm(dim=-1) - pred_flow[link_ixs][
                 grasp_point_id
             ].norm(dim=-1)
             if (
@@ -835,15 +855,14 @@ def run_trial(
                     env.render_env.client_id
                 )  # Make sure the constraint is lifted
 
-                best_point = P_world[link_ixs][best_flow_ix]
                 if website and not gui:
                     # contact = env.teleport_and_approach(best_point, best_flow, video_writer=writer)
                     best_flow_ix, contact = env.teleport(
-                        best_point, best_flow, video_writer=writer
+                        best_points, best_flows, video_writer=writer
                     )
                 else:
                     # contact = env.teleport_and_approach(best_point, best_flow)
-                    best_flow_ix, contact = env.teleport(best_point, best_flow)
+                    best_flow_ix, contact = env.teleport(best_points, best_flows)
                 best_flow = pred_flow[link_ixs][best_flow_ix]
                 best_point = P_world[link_ixs][best_flow_ix]
                 last_step_grasp_point = best_point  # Grasp a new point
@@ -893,53 +912,6 @@ def run_trial(
                 last_step_grasp_point = P_world[link_ixs][
                     grasp_point_id
                 ]  # The original point - don't need to change
-
-            # # (3) Strategy 3 - Always change grasp point
-            # # Only change if the new point's leverage is a great increase
-            # env.reset_gripper()
-            # best_point = P_world[link_ixs][best_flow_ix]
-            # if website and not gui:
-            #     # contact = env.teleport_and_approach(best_point, best_flow, video_writer=writer)
-            #     best_flow_ix, contact = env.teleport(best_point, best_flow, video_writer=writer)
-            # else:
-            #     # contact = env.teleport_and_approach(best_point, best_flow)
-            #     best_flow_ix, contact = env.teleport(best_point, best_flow)
-            # best_flow = pred_flow[link_ixs][best_flow_ix]
-            # best_point = P_world[link_ixs][best_flow_ix]
-            # if not contact:
-            #     if website:
-            #         segmented_flow = np.zeros_like(pred_flow)
-            #         segmented_flow[link_ixs] = pred_flow[link_ixs]
-            #         segmented_flow = np.array(
-            #             normalize_trajectory(
-            #                 torch.from_numpy(np.expand_dims(segmented_flow, 1))
-            #             ).squeeze()
-            #         )
-            #         animation.add_trace(
-            #             torch.as_tensor(P_world),
-            #             torch.as_tensor([P_world]),
-            #             torch.as_tensor([segmented_flow]),
-            #             "red",
-            #         )
-            #         if gui:
-            #             p.stopStateLogging(log_id)
-            #         else:
-            #             # Write video
-            #             writer.close()
-            #             # videoWriter.release()
-
-            #     print("No contact!")
-            #     p.disconnect(physicsClientId=env.render_env.client_id)
-            #     animation_results = None if not website else animation.animate()
-            #     return animation_results, TrialResult(
-            #         success=False,
-            #         assertion=True,
-            #         contact=False,
-            #         init_angle=0,
-            #         final_angle=0,
-            #         now_angle=0,
-            #         metric=0,
-            #     ), sim_trajectory
 
             env.attach()
             # Perform the pulling.
