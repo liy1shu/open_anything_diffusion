@@ -21,9 +21,11 @@ from open_anything_diffusion.models.dit_utils import create_diffusion
 
 
 # Flow predictor with DiT
-class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
-    def __init__(self, network, training_cfg, model_cfg) -> None:
+class FlowTrajectoryDiffusionModule_HisDiT(L.LightningModule):
+    def __init__(self, networks, training_cfg, model_cfg) -> None:
         super().__init__()
+        network = networks["DiT"]
+        history_encoder = networks["History"]
 
         # Training params
         self.batch_size = training_cfg.batch_size
@@ -41,7 +43,10 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
         self.sample_size = 1200
         self.wta_trial_times = training_cfg.wta_trial_times
 
+        # self.history_encoder = HistoryEncoder(history_dim=model_cfg.history_embed_dim)
+        self.history_encoder = history_encoder
         self.backbone = network
+        self.history_len = history_encoder.history_len
         self.num_train_timesteps = model_cfg.num_train_timesteps
         self.diffusion = create_diffusion(
             timestep_respacing=None, diffusion_steps=self.num_train_timesteps
@@ -55,14 +60,20 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
             .permute(0, 2, 1)
             .float()
             .cuda()
+        )  # Ground truth, for loss calculation
+        history_embed = self.history_encoder(batch).permute(
+            0, 2, 1
+        )  # History embedding
+        pos = torch.concat(
+            [
+                batch.pos.reshape(-1, self.sample_size, 3 * self.traj_len)
+                .permute(0, 2, 1)
+                .float()
+                .cuda(),
+                history_embed,  # Concat history embedding
+            ],
+            dim=1,
         )
-        pos = (
-            batch.pos.reshape(-1, self.sample_size, 3 * self.traj_len)
-            .permute(0, 2, 1)
-            .float()
-            .cuda()
-        )
-
         model_kwargs = dict(pos=pos)
         loss_dict = self.diffusion.training_losses(
             self.backbone, x, batch.timesteps, model_kwargs
@@ -90,11 +101,16 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
             bs, 3 * self.traj_len, self.sample_size, device=self.device
         )  # .float()
 
-        pos = (
-            batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
-            .permute(0, 2, 1)
-            .float()
-            .cuda()
+        history_embed = self.history_encoder(batch).permute(0, 2, 1)
+        pos = torch.concat(
+            [
+                batch.pos.reshape(-1, self.sample_size, 3 * self.traj_len)
+                .permute(0, 2, 1)
+                .float()
+                .cuda(),
+                history_embed,  # Concat history embedding
+            ],
+            dim=1,
         )
         model_kwargs = dict(pos=pos)
 
@@ -120,6 +136,7 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
         if self.mode == "delta":
             f_target = batch.delta
         elif self.mode == "point":
+            assert True, "point supervision not implemented"
             f_target = batch.point
 
         f_target = f_target  # .float()
@@ -159,11 +176,16 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
             bs, 3 * self.traj_len, self.sample_size, device=self.device
         )  # .float()
 
-        pos = (
-            batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
-            .permute(0, 2, 1)
-            .float()
-            .cuda()
+        history_embed = self.history_encoder(batch).permute(0, 2, 1)
+        pos = torch.concat(
+            [
+                batch.pos.reshape(-1, self.sample_size, 3 * self.traj_len)
+                .permute(0, 2, 1)
+                .float()
+                .cuda(),
+                history_embed,  # Concat history embedding
+            ],
+            dim=1,
         )
         model_kwargs = dict(pos=pos)
 
@@ -189,6 +211,7 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
         if self.mode == "delta":
             f_target = batch.delta
         elif self.mode == "point":
+            assert True, "point supervision not implemented"
             f_target = batch.point
 
         f_target = f_target  # .float()
@@ -299,9 +322,7 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
     def make_plots(preds, batch: tgd.Batch, cosine_cache=None) -> Dict[str, go.Figure]:
         # 1) Make the flow visualization plots
         obj_id = batch.id
-        pos = (
-            batch.point[:, -2, :].numpy() if batch.point.shape[1] >= 2 else batch.pos
-        )  # The last step's beinning pos
+        pos = batch.pos  # The last step's beinning pos
         mask = batch.mask.numpy()
         f_target = batch.delta[:, -1, :]
         f_pred = preds.reshape(preds.shape[0], -1, 3)[:, -1, :]
@@ -379,15 +400,21 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
         return {"diffuser_plot": fig, "cosine_distribution_plot": cos_fig}
 
 
-class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
-    def __init__(self, network, inference_cfg, model_cfg) -> None:
+class FlowTrajectoryDiffuserInferenceModule_HisDiT(L.LightningModule):
+    def __init__(self, networks, inference_cfg, model_cfg) -> None:
         super().__init__()
+        network = networks["DiT"]
+        history_encoder = networks["History"]
+
         # Inference params
         self.batch_size = inference_cfg.batch_size
         self.traj_len = inference_cfg.trajectory_len
 
         # Diffuser params
         self.sample_size = 1200
+
+        self.history_encoder = history_encoder
+        self.history_len = self.history_encoder.history_len
         self.backbone = network
         self.num_inference_timesteps = model_cfg.num_train_timesteps
         self.diffusion = create_diffusion(
@@ -404,9 +431,15 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
         )
         return None
 
-    def predict(self, P_world) -> torch.Tensor:  # From pure point cloud
+    def predict(
+        self, P_world, history_pcd, history_flow
+    ) -> torch.Tensor:  # From pure point cloud
         data = tgd.Data(
             pos=torch.from_numpy(P_world).float().cuda(),
+            history=torch.from_numpy(history_pcd).float().cuda(),
+            flow_history=torch.from_numpy(history_flow).float().cuda(),
+            K=self.history_len,
+            lengths=self.sample_size
             # mask=torch.ones(P_world.shape[0]).float(),
         )
         batch = tgd.Batch.from_data_list([data])
@@ -428,11 +461,18 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
             bs, 3 * self.traj_len, self.sample_size, device=self.device
         )  # .float()
 
-        pos = (
-            batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
-            .permute(0, 2, 1)
-            .float()
-            .cuda()
+        history_embed = self.history_encoder(batch).permute(
+            0, 2, 1
+        )  # History embedding
+        pos = torch.concat(
+            [
+                batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
+                .permute(0, 2, 1)
+                .float()
+                .cuda(),
+                history_embed,  # Concat history embedding
+            ],
+            dim=1,
         )
         model_kwargs = dict(pos=pos)
 
@@ -447,7 +487,6 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
         )
 
         f_pred = samples.permute(0, 2, 1).reshape(-1, 3 * self.traj_len).unsqueeze(1)
-        # print(f_pred.shape)
         f_pred = normalize_trajectory(f_pred)
         return f_pred
 
@@ -476,11 +515,18 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
                 bs, 3 * self.traj_len, self.sample_size, device=self.device
             )  # .float()
 
-            pos = (
-                batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
-                .permute(0, 2, 1)
-                .float()
-                .to(self.device)
+            history_embed = self.history_encoder(batch).permute(
+                0, 2, 1
+            )  # History embedding
+            pos = torch.concat(
+                [
+                    batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
+                    .permute(0, 2, 1)
+                    .float()
+                    .cuda(),
+                    history_embed,  # Concat history embedding
+                ],
+                dim=1,
             )
             model_kwargs = dict(pos=pos)
 
@@ -511,6 +557,7 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
             if mode == "delta":
                 f_target = batch.delta.to(self.device)
             elif mode == "point":
+                assert True, "point supervision not implemented"
                 f_target = batch.point.to(self.device)
 
             f_target = f_target  # .float()
@@ -570,24 +617,30 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
         return metric_dict, cos_dist.tolist()  # dataloader * trial_times
 
 
-class FlowTrajectoryDiffuserSimulationModule_DiT(L.LightningModule):
-    def __init__(self, network, inference_cfg, model_cfg) -> None:
+class FlowTrajectoryDiffuserSimulationModule_HisDiT(L.LightningModule):
+    def __init__(self, networks, inference_cfg, model_cfg) -> None:
         super().__init__()
-        self.model = FlowTrajectoryDiffuserInferenceModule_DiT(
-            network, inference_cfg, model_cfg
+        self.model = FlowTrajectoryDiffuserInferenceModule_HisDiT(
+            networks, inference_cfg, model_cfg
         )
+        self.history_len = self.model.history_len
+        self.sample_size = self.model.sample_size
 
     def load_from_ckpt(self, ckpt_file):
         self.model.load_from_ckpt(ckpt_file)
 
-    def forward(self, data) -> torch.Tensor:  # type: ignore
+    def forward(self, data, history_pcd, history_flow) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
         rgb, depth, seg, P_cam, P_world, pc_seg, segmap = data
-
         data = tgd.Data(
             pos=torch.from_numpy(P_world).float().cuda(),
+            history=torch.from_numpy(history_pcd).float().cuda(),
+            flow_history=torch.from_numpy(history_flow).float().cuda(),
+            K=self.history_len,
+            lengths=self.sample_size
             # mask=torch.ones(P_world.shape[0]).float(),
         )
+        # breakpoint()
         batch = tgd.Batch.from_data_list([data])
         # batch = batch.to(self.device)
         # batch.x = batch.mask.reshape(len(batch.mask), 1)

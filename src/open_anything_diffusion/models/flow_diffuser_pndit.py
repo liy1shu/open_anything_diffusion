@@ -20,8 +20,8 @@ from open_anything_diffusion.metrics.trajectory import (
 from open_anything_diffusion.models.dit_utils import create_diffusion
 
 
-# Flow predictor with DiT
-class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
+# Flow predictor with PN++ + DiT
+class FlowTrajectoryDiffusionModule_PNDiT(L.LightningModule):
     def __init__(self, network, training_cfg, model_cfg) -> None:
         super().__init__()
 
@@ -51,19 +51,15 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
 
     def forward(self, batch: tgd.Batch, mode):
         x = (
-            batch.delta.reshape(-1, self.sample_size, 3 * self.traj_len)
-            .permute(0, 2, 1)
+            batch.delta.squeeze(2)
+            .reshape(-1, 30, 40, 3 * self.traj_len)
+            .permute(0, 3, 1, 2)
             .float()
             .cuda()
         )
-        pos = (
-            batch.pos.reshape(-1, self.sample_size, 3 * self.traj_len)
-            .permute(0, 2, 1)
-            .float()
-            .cuda()
-        )
+        pos = batch.pos.reshape(-1, self.sample_size, 3 * self.traj_len).float().cuda()
 
-        model_kwargs = dict(pos=pos)
+        model_kwargs = dict(pos=pos, context=batch.cuda())
         loss_dict = self.diffusion.training_losses(
             self.backbone, x, batch.timesteps, model_kwargs
         )
@@ -86,17 +82,10 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
     def predict(self, batch: tgd.Batch, mode):
         # torch.eval()
         bs = batch.delta.shape[0] // self.sample_size
-        z = torch.randn(
-            bs, 3 * self.traj_len, self.sample_size, device=self.device
-        )  # .float()
+        z = torch.randn(bs, 3 * self.traj_len, 30, 40, device=self.device)  # .float()
 
-        pos = (
-            batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
-            .permute(0, 2, 1)
-            .float()
-            .cuda()
-        )
-        model_kwargs = dict(pos=pos)
+        pos = batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len).float().cuda()
+        model_kwargs = dict(pos=pos, context=batch)
 
         samples, results = self.diffusion.p_sample_loop(
             self.backbone,
@@ -108,12 +97,17 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
             device=self.device,
         )
 
-        f_pred = samples.permute(0, 2, 1).reshape(-1, 3 * self.traj_len).unsqueeze(1)
+        f_pred = (
+            torch.flatten(samples, start_dim=2, end_dim=3)
+            .permute(0, 2, 1)
+            .reshape(-1, 3 * self.traj_len)
+            .unsqueeze(1)
+        )
         f_pred = normalize_trajectory(f_pred)
 
         # Compute the loss.
-        mask = batch.mask == 1
-        mask = mask.reshape(-1, self.sample_size).to("cuda")
+        # mask = batch.mask == 1
+        # mask = mask.reshape(-1, self.sample_size).to("cuda")
 
         n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
         f_ix = batch.mask.bool()
@@ -133,8 +127,6 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
 
         # Compute some metrics on flow-only regions.
         rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
-        if torch.isnan(cos_dist):
-            breakpoint()
 
         self.log_dict(
             {
@@ -155,17 +147,10 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
         data_list = orig_batch.to_data_list() * bs
         batch = tgd.Batch.from_data_list(data_list)
 
-        z = torch.randn(
-            bs, 3 * self.traj_len, self.sample_size, device=self.device
-        )  # .float()
+        z = torch.randn(bs, 3 * self.traj_len, 30, 40, device=self.device)  # .float()
 
-        pos = (
-            batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
-            .permute(0, 2, 1)
-            .float()
-            .cuda()
-        )
-        model_kwargs = dict(pos=pos)
+        pos = batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len).float().cuda()
+        model_kwargs = dict(pos=pos, context=batch)
 
         samples, results = self.diffusion.p_sample_loop(
             self.backbone,
@@ -177,12 +162,17 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
             device=self.device,
         )
 
-        f_pred = samples.permute(0, 2, 1).reshape(-1, 3 * self.traj_len).unsqueeze(1)
+        f_pred = (
+            torch.flatten(samples, start_dim=2, end_dim=3)
+            .permute(0, 2, 1)
+            .reshape(-1, 3 * self.traj_len)
+            .unsqueeze(1)
+        )
         f_pred = normalize_trajectory(f_pred)
 
         # Compute the loss.
-        # mask = batch.mask == 1
-        # mask = mask.reshape(-1, self.sample_size).to("cuda")
+        mask = batch.mask == 1
+        mask = mask.reshape(-1, self.sample_size).to("cuda")
 
         n_nodes = torch.as_tensor([d.num_nodes for d in batch.to_data_list()]).to(self.device)  # type: ignore
         f_ix = batch.mask.bool()
@@ -213,7 +203,6 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
 
         # Aggregate the results
         # Choose the one with smallest flow loss
-
         rmse = rmse.reshape(bs, -1).mean(-1)
         cos_dist = cos_dist.reshape(bs, -1).mean(-1)
         mag_error = mag_error.reshape(bs, -1).mean(-1)
@@ -257,7 +246,7 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
         self.train()
         bs = batch.delta.shape[0] // self.sample_size
 
-        batch.delta = normalize_trajectory(batch.delta)
+        # batch.delta = normalize_trajectory(batch.delta)
         batch.timesteps = torch.randint(
             0,
             self.num_train_timesteps,
@@ -281,6 +270,7 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
         name = dataloader_names[dataloader_idx]
         with torch.no_grad():
             f_pred, loss = self.predict(batch, name)
+            # print("predict:", f_pred.shape)
             if self.wta:
                 f_pred, loss, cosines = self.predict_wta(batch, name)
                 self.cosine_distribution_cache["x"] += [batch_id] * len(cosines)
@@ -379,7 +369,7 @@ class FlowTrajectoryDiffusionModule_DiT(L.LightningModule):
         return {"diffuser_plot": fig, "cosine_distribution_plot": cos_fig}
 
 
-class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
+class FlowTrajectoryDiffuserInferenceModule_PNDiT(L.LightningModule):
     def __init__(self, network, inference_cfg, model_cfg) -> None:
         super().__init__()
         # Inference params
@@ -424,17 +414,10 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
         # torch.eval()
         self.eval()
         bs = batch.pos.shape[0] // self.sample_size
-        z = torch.randn(
-            bs, 3 * self.traj_len, self.sample_size, device=self.device
-        )  # .float()
+        z = torch.randn(bs, 3 * self.traj_len, 30, 40, device=self.device)  # .float()
 
-        pos = (
-            batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
-            .permute(0, 2, 1)
-            .float()
-            .cuda()
-        )
-        model_kwargs = dict(pos=pos)
+        pos = batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len).float().cuda()
+        model_kwargs = dict(pos=pos, context=batch.cuda())
 
         samples, results = self.diffusion.p_sample_loop(
             self.backbone,
@@ -446,8 +429,12 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
             device=self.device,
         )
 
-        f_pred = samples.permute(0, 2, 1).reshape(-1, 3 * self.traj_len).unsqueeze(1)
-        # print(f_pred.shape)
+        f_pred = (
+            torch.flatten(samples, start_dim=2, end_dim=3)
+            .permute(0, 2, 1)
+            .reshape(-1, 3 * self.traj_len)
+            .unsqueeze(1)
+        )
         f_pred = normalize_trajectory(f_pred)
         return f_pred
 
@@ -473,17 +460,16 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
             batch = tgd.Batch.from_data_list(data_list)
 
             z = torch.randn(
-                bs, 3 * self.traj_len, self.sample_size, device=self.device
+                bs, 3 * self.traj_len, 30, 40, device=self.device
             )  # .float()
 
             pos = (
                 batch.pos.reshape(bs, self.sample_size, 3 * self.traj_len)
-                .permute(0, 2, 1)
                 .float()
                 .to(self.device)
             )
-            model_kwargs = dict(pos=pos)
-
+            model_kwargs = dict(pos=pos, context=batch)
+            # breakpoint()
             samples, results = self.diffusion.p_sample_loop(
                 self.backbone,
                 z.shape,
@@ -495,7 +481,10 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
             )
 
             f_pred = (
-                samples.permute(0, 2, 1).reshape(-1, 3 * self.traj_len).unsqueeze(1)
+                torch.flatten(samples, start_dim=2, end_dim=3)
+                .permute(0, 2, 1)
+                .reshape(-1, 3 * self.traj_len)
+                .unsqueeze(1)
             )
             f_pred = normalize_trajectory(f_pred)
 
@@ -507,6 +496,7 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
             f_ix = batch.mask.bool().to(self.device)
             if torch.sum(f_ix) == 0:
                 continue
+
             valid_sample_cnt += 1
             if mode == "delta":
                 f_target = batch.delta.to(self.device)
@@ -517,6 +507,7 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
             f_target = normalize_trajectory(f_target)
 
             # print(f_pred[f_ix], batch.delta[f_ix])
+            # print(f_pred.device, f_target.device)
             flow_loss = artflownet_loss(f_pred, f_target, n_nodes, reduce=False)
 
             # Compute some metrics on flow-only regions.
@@ -553,13 +544,13 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
             all_flow_loss += flow_loss[chosen_id].item()
 
         metric_dict = {
-            f"flow_loss": all_flow_loss / valid_sample_cnt,
-            f"rmse": all_rmse / valid_sample_cnt,
-            f"cosine_similarity": all_cos_dist / valid_sample_cnt,
-            f"mag_error": all_mag_error / valid_sample_cnt,
-            f"multimodal": all_multimodal / valid_sample_cnt,
-            f"pos@0.7": all_pos_cosine / valid_sample_cnt,
-            f"neg@0.7": all_neg_cosine / valid_sample_cnt,
+            f"flow_loss": all_flow_loss / valid_sample_cnt,  # / len(dataloader),
+            f"rmse": all_rmse / valid_sample_cnt,  # / len(dataloader),
+            f"cosine_similarity": all_cos_dist / valid_sample_cnt,  # / len(dataloader),
+            f"mag_error": all_mag_error / valid_sample_cnt,  # / len(dataloader),
+            f"multimodal": all_multimodal / valid_sample_cnt,  # / len(dataloader),
+            f"pos@0.7": all_pos_cosine / valid_sample_cnt,  # / len(dataloader),
+            f"neg@0.7": all_neg_cosine / valid_sample_cnt,  # / len(dataloader),
         }
 
         self.log_dict(
@@ -570,10 +561,10 @@ class FlowTrajectoryDiffuserInferenceModule_DiT(L.LightningModule):
         return metric_dict, cos_dist.tolist()  # dataloader * trial_times
 
 
-class FlowTrajectoryDiffuserSimulationModule_DiT(L.LightningModule):
+class FlowTrajectoryDiffuserSimulationModule_PNDiT(L.LightningModule):
     def __init__(self, network, inference_cfg, model_cfg) -> None:
         super().__init__()
-        self.model = FlowTrajectoryDiffuserInferenceModule_DiT(
+        self.model = FlowTrajectoryDiffuserInferenceModule_PNDiT(
             network, inference_cfg, model_cfg
         )
 

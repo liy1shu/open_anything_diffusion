@@ -19,6 +19,12 @@ from open_anything_diffusion.models.flow_diffuser_dgdit import (
 from open_anything_diffusion.models.flow_diffuser_dit import (
     FlowTrajectoryDiffusionModule_DiT,
 )
+from open_anything_diffusion.models.flow_diffuser_hisdit import (
+    FlowTrajectoryDiffusionModule_HisDiT,
+)
+from open_anything_diffusion.models.flow_diffuser_pndit import (
+    FlowTrajectoryDiffusionModule_PNDiT,
+)
 
 # Regression Models
 from open_anything_diffusion.models.flow_predictor import FlowPredictorTrainingModule
@@ -30,7 +36,9 @@ from open_anything_diffusion.models.flow_trajectory_diffuser import (
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowTrajectoryTrainingModule,
 )
-from open_anything_diffusion.models.modules.dit_models import DGDiT, DiT
+from open_anything_diffusion.models.modules.dit_models import DGDiT, DiT, PN2DiT
+from open_anything_diffusion.models.modules.history_encoder import HistoryEncoder
+from open_anything_diffusion.models.modules.history_translator import HistoryTranslator
 from open_anything_diffusion.utils.script_utils import (
     PROJECT_ROOT,
     LogPredictionSamplesCallback,
@@ -45,8 +53,15 @@ training_module_class = {
     "flowbot_pn++": FlowPredictorTrainingModule,
     "trajectory_pn++": FlowTrajectoryTrainingModule,
     "trajectory_diffuser_pn++": FlowTrajectoryDiffusionModule_PN2,
+    "trajectory_diffuser_pndit": FlowTrajectoryDiffusionModule_PNDiT,
     "trajectory_diffuser_dgdit": FlowTrajectoryDiffusionModule_DGDiT,
     "trajectory_diffuser_dit": FlowTrajectoryDiffusionModule_DiT,
+    # With history
+    "trajectory_diffuser_hisdit": FlowTrajectoryDiffusionModule_HisDiT,
+}
+history_network_class = {
+    "encoder": HistoryEncoder,
+    "translator": HistoryTranslator,
 }
 
 
@@ -103,7 +118,7 @@ def main(cfg):
 
     # Full dataset
     toy_dataset = None
-    # Door dataset
+    # # Door dataset
     # toy_dataset = {
     #     "id": "door-full-new",
     #     "train-train": [
@@ -139,14 +154,17 @@ def main(cfg):
     #     "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
     #     "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
     # }
-    special_req = "half-half"  # "fully-closed"
-    # Create FlowBot dataset
+    # special_req = "half-half"  # "fully-closed"
+    special_req = None
+
+    # Create flow dataset
     datamodule = data_module_class[cfg.dataset.name](
         root=cfg.dataset.data_dir,
         batch_size=cfg.training.batch_size,
         num_workers=cfg.resources.num_workers,
         n_proc=cfg.resources.n_proc_per_worker,
         seed=cfg.seed,
+        history="his" in cfg.model.name,
         trajectory_len=trajectory_len,  # Only used when training trajectory model
         special_req=special_req,  # special_req="fully-closed"
         # # TODO: only for toy training!!!!!
@@ -168,6 +186,7 @@ def main(cfg):
             num_workers=cfg.resources.num_workers,
             n_proc=cfg.resources.n_proc_per_worker,
             seed=cfg.seed,
+            history="his" in cfg.model.name,
             trajectory_len=trajectory_len,  # Only used when training trajectory model
             special_req=None,  # special_req="fully-closed"
             toy_dataset=toy_dataset,
@@ -178,6 +197,7 @@ def main(cfg):
             num_workers=cfg.resources.num_workers,
             n_proc=cfg.resources.n_proc_per_worker,
             seed=cfg.seed,
+            history="his" in cfg.model.name,
             trajectory_len=trajectory_len,  # Only used when training trajectory model
             special_req="fully-closed",  # special_req="fully-closed"
             toy_dataset=toy_dataset,
@@ -234,12 +254,39 @@ def main(cfg):
             num_heads=4,
             n_points=cfg.dataset.n_points,
         ).cuda()
+    elif "pndit" in cfg.model.name:
+        network = PN2DiT(
+            in_channels=in_channels,
+            depth=5,
+            hidden_size=128,
+            patch_size=1,
+            num_heads=4,
+            n_points=cfg.dataset.n_points,
+        )
+    elif "hisdit" in cfg.model.name:
+        network = {
+            "DiT": DiT(
+                in_channels=in_channels + 3 + cfg.model.history_dim,
+                depth=5,
+                hidden_size=128,
+                num_heads=4,
+                learn_sigma=True,
+            ).cuda(),
+            "History": history_network_class[cfg.model.history_model](
+                history_dim=cfg.model.history_dim,
+                history_len=cfg.model.history_len,
+                batch_norm=cfg.model.batch_norm,
+            ).cuda(),
+        }
     elif "dit" in cfg.model.name:
         network = DiT(
             in_channels=in_channels + 3,
-            depth=5,
-            hidden_size=128,
-            num_heads=4,
+            # depth=5,
+            # hidden_size=128,
+            # num_heads=4,
+            depth=12,
+            hidden_size=384,
+            num_heads=6,
             learn_sigma=True,
         ).cuda()
 

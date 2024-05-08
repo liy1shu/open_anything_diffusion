@@ -23,6 +23,9 @@ from open_anything_diffusion.models.flow_diffuser_dgdit import (
 from open_anything_diffusion.models.flow_diffuser_dit import (
     FlowTrajectoryDiffuserSimulationModule_DiT,
 )
+from open_anything_diffusion.models.flow_diffuser_hisdit import (
+    FlowTrajectoryDiffuserSimulationModule_HisDiT,
+)
 from open_anything_diffusion.models.flow_diffuser_pndit import (
     FlowTrajectoryDiffuserSimulationModule_PNDiT,
 )
@@ -30,7 +33,8 @@ from open_anything_diffusion.models.flow_trajectory_diffuser import (
     FlowTrajectoryDiffuserSimulationModule_PN2,
 )
 from open_anything_diffusion.models.modules.dit_models import DGDiT, DiT, PN2DiT
-from open_anything_diffusion.simulations.simulation import trial_with_diffuser
+from open_anything_diffusion.models.modules.history_encoder import HistoryEncoder
+from open_anything_diffusion.simulations.simulation import trial_with_diffuser_history
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
 
 print(PROJECT_ROOT)
@@ -275,6 +279,27 @@ def main(cfg):
     model.load_from_ckpt(ckpt_file)
     model.eval()
 
+    # History model
+    network = {
+        "DiT": DiT(
+            in_channels=3 + 3 + 128,
+            depth=5,
+            hidden_size=128,
+            num_heads=4,
+            learn_sigma=True,
+        ).cuda(),
+        "History": HistoryEncoder(
+            history_dim=128, history_len=1, batch_norm=False
+        ).cuda(),
+    }
+
+    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-01/10-18-38/checkpoints/epoch=529-step=293090-val_loss=0.00-weights-only.ckpt"
+    history_model = FlowTrajectoryDiffuserSimulationModule_HisDiT(
+        network, inference_cfg=cfg.inference, model_cfg=cfg.model
+    ).cuda()
+    history_model.load_from_ckpt(ckpt_file)
+    history_model.eval()
+
     # Simulation and results.
     print("Simulating")
     if cfg.website:
@@ -298,9 +323,10 @@ def main(cfg):
         if len(available_links) == 0:
             continue
         print(f"OBJ {obj_id} of {obj_cat}")
-        trial_figs, trial_results, sim_trajectory = trial_with_diffuser(
+        trial_figs, trial_results, sim_trajectory = trial_with_diffuser_history(
             obj_id=obj_id,
             model=model,
+            history_model=history_model,
             n_step=30,
             gui=False,
             website=cfg.website,

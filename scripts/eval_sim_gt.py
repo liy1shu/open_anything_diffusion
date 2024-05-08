@@ -87,7 +87,8 @@ toy_dataset = {
     "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
     "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
 }
-id_to_cat = load_obj_id_to_category(toy_dataset)
+# id_to_cat = load_obj_id_to_category(toy_dataset)
+id_to_cat = load_obj_id_to_category()  # Full dataset
 object_to_link = load_obj_and_link(id_to_cat)
 
 
@@ -249,7 +250,11 @@ def main(cfg):
         table = wandb.Table(dataframe=wandb_df.reset_index())
         run.log({f"simulation_metric_table": table})
 
-    print(movable_link)
+    with open(
+        "/home/yishu/open_anything_diffusion/scripts/movable_links_fullset_000.json",
+        "w",
+    ) as f:
+        json.dump(movable_link, f)
     # for obj_cat in category_counts.keys():
     #     metric_df.loc[obj_cat]["success_rate"] /= category_counts[obj_cat]
     #     metric_df.loc[obj_cat]["norm_dist"] /= category_counts[obj_cat]

@@ -8,7 +8,7 @@ defaults:
   # - dataset: flowbot
   - dataset: trajectory
   # - model: diffuser_pn++ #pn++
-  - model: diffuser_dit
+  - model: diffuser_pndit
   # - model: pn++
 
   # A set of inference settings for the model. Note that these may be different
@@ -70,7 +70,8 @@ checkpoint:
   # run_id: 9v8h8jsn   # fullset half-half diffusion dgdit
 
   # run_id: libhkzgt   # fullset half-half newsplit flowbot
-  run_id: 9s85cqw7   # fullset half-half newsplit diffusion dit
+  # run_id: 9s85cqw7   # fullset half-half newsplit diffusion dit
+  run_id: fj50vjmg     # fullset half-half newsplit diffusion pndit
 
   reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
 

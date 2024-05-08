@@ -14,7 +14,7 @@ from diffusers import DDPMScheduler
 from diffusers.optimization import get_cosine_schedule_with_warmup
 from flowbot3d.grasping.agents.flowbot3d import FlowNetAnimation
 
-from open_anything_diffusion.datasets.flow_history import FlowHistoryDataModule
+from open_anything_diffusion.datasets.flow_history_pdo import FlowHistoryDataModule
 from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
 from open_anything_diffusion.metrics.trajectory import (
     artflownet_loss,

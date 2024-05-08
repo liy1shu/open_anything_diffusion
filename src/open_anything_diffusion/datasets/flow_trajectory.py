@@ -5,6 +5,7 @@ import rpad.partnet_mobility_utils.dataset as rpd
 import torch_geometric.loader as tgl
 from rpad.pyg.dataset import CachedByKeyDataset
 
+from open_anything_diffusion.datasets.flow_history_dataset import FlowHistoryDataset
 from open_anything_diffusion.datasets.flow_trajectory_dataset_pyg import (
     FlowTrajectoryPyGDataset,
 )
@@ -18,6 +19,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         batch_size,
         num_workers,
         n_proc,
+        history=False,  ## With / without history
         randomize_camera: bool = True,
         trajectory_len: int = 1,
         seed: int = 42,
@@ -27,8 +29,9 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         super().__init__()
         self.batch_size = batch_size
         self.seed = seed
+        self.dataset_cls = FlowHistoryDataset if history else FlowTrajectoryPyGDataset
         print(
-            FlowTrajectoryPyGDataset.get_processed_dir(
+            self.dataset_cls.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,
@@ -37,7 +40,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             )
         )
         self.train_dset = CachedByKeyDataset(
-            dset_cls=FlowTrajectoryPyGDataset,
+            dset_cls=self.dataset_cls,
             dset_kwargs=dict(
                 root=os.path.join(root, "raw"),
                 split="umpnet-train-train"
@@ -51,7 +54,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             if toy_dataset is None
             else toy_dataset["train-train"],
             root=root,
-            processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
+            processed_dirname=self.dataset_cls.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,
@@ -66,7 +69,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         )
 
         self.train_val_dset = CachedByKeyDataset(
-            dset_cls=FlowTrajectoryPyGDataset,
+            dset_cls=self.dataset_cls,
             dset_kwargs=dict(
                 root=os.path.join(root, "raw"),
                 split="umpnet-train-train"
@@ -80,7 +83,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             if toy_dataset is None
             else toy_dataset["train-train"],
             root=root,
-            processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
+            processed_dirname=self.dataset_cls.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,
@@ -94,7 +97,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         )
 
         self.val_dset = CachedByKeyDataset(
-            dset_cls=FlowTrajectoryPyGDataset,
+            dset_cls=self.dataset_cls,
             dset_kwargs=dict(
                 root=os.path.join(root, "raw"),
                 split="umpnet-train-test"
@@ -108,7 +111,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             if toy_dataset is None
             else toy_dataset["train-test"],
             root=root,
-            processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
+            processed_dirname=self.dataset_cls.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,
@@ -122,7 +125,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         )
 
         self.unseen_dset = CachedByKeyDataset(
-            dset_cls=FlowTrajectoryPyGDataset,
+            dset_cls=self.dataset_cls,
             dset_kwargs=dict(
                 root=os.path.join(root, "raw"),
                 split="umpnet-test" if toy_dataset is None else toy_dataset["test"],
@@ -134,7 +137,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             if toy_dataset is None
             else toy_dataset["test"],
             root=root,
-            processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
+            processed_dirname=self.dataset_cls.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,

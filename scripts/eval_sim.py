@@ -24,14 +24,14 @@ def load_obj_id_to_category(toy_dataset=None):
     id_to_cat = {}
     if toy_dataset is None:
         # Extract existing classes.
-        with open(f"{PROJECT_ROOT}/scripts/umpnet_data_split.json", "r") as f:
+        with open(f"{PROJECT_ROOT}/scripts/umpnet_data_split_new.json", "r") as f:
             data = json.load(f)
 
         for _, category_dict in data.items():
             for category, split_dict in category_dict.items():
-                for _, id_list in split_dict.items():
+                for train_or_test, id_list in split_dict.items():
                     for id in id_list:
-                        id_to_cat[id] = category
+                        id_to_cat[id] = f"{category}_{train_or_test}"
 
     else:
         with open(f"{PROJECT_ROOT}/scripts/umpnet_object_list.json", "r") as f:
@@ -44,7 +44,8 @@ def load_obj_id_to_category(toy_dataset=None):
 
 def load_obj_and_link(id_to_cat):
     # with open("./scripts/umpnet_object_list.json", "r") as f:
-    with open(f"{PROJECT_ROOT}/scripts/movable_links_001.json", "r") as f:
+    # with open(f"{PROJECT_ROOT}/scripts/movable_links_005.json", "r") as f:
+    with open(f"{PROJECT_ROOT}/scripts/movable_links_fullset_000.json", "r") as f:
         object_link_json = json.load(f)
     for id in id_to_cat.keys():
         if id not in object_link_json.keys():
@@ -87,34 +88,35 @@ def load_obj_and_link(id_to_cat):
 #     "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
 #     "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
 # }
-toy_dataset = {  # For half-half fullset training
-    "id": "door-full-fullset",
-    "train-train": [
-        "9281",
-        "9107",
-        "8997",
-        "9280",
-        "9070",
-        "8919",
-        "9168",
-        "8983",
-        "9016",
-        "9117",
-        "9041",
-        "9164",
-        "8936",
-        "8897",
-        "9386",
-        "9288",
-        "8903",
-        "9128",
-        "8930",
-        "8961",
-        "9003",
-    ],
-    "train-test": ["9065", "8867", "9410", "9388", "8893", "8877"],
-    "test": ["9065", "8867", "9410", "9388", "8893", "8877"],
-}
+# toy_dataset = {  # For half-half fullset training
+#     "id": "door-full-fullset",
+#     "train-train": [
+#         "9281",
+#         "9107",
+#         "8997",
+#         "9280",
+#         "9070",
+#         "8919",
+#         "9168",
+#         "8983",
+#         "9016",
+#         "9117",
+#         "9041",
+#         "9164",
+#         "8936",
+#         "8897",
+#         "9386",
+#         "9288",
+#         "8903",
+#         "9128",
+#         "8930",
+#         "8961",
+#         "9003",
+#     ],
+#     "train-test": ["9065", "8867", "9410", "9388", "8893", "8877"],
+#     "test": ["9065", "8867", "9410", "9388", "8893", "8877"],
+# }
+toy_dataset = None
 id_to_cat = load_obj_id_to_category(toy_dataset)
 object_to_link = load_obj_and_link(id_to_cat)
 
@@ -264,8 +266,8 @@ def main(cfg):
     link_names = []
     # for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
     for obj_id, available_links in tqdm.tqdm(list(object_to_link.items())):
-        if obj_id not in object_ids:  # For Door dataset
-            continue
+        # if obj_id not in object_ids:  # For Door dataset
+        #     continue
         if obj_id not in id_to_cat.keys():
             continue
         if len(available_links) == 0:
@@ -326,7 +328,7 @@ def main(cfg):
             wandb_df.loc[obj_cat]["count"] = category_counts[obj_cat]
 
         # table = wandb.Table(dataframe=wandb_df.reset_index())
-        table = wandb.Table(dataframe=wandb_df)
+        table = wandb.Table(dataframe=wandb_df.reset_index())
         run.log({f"simulation_metric_table": table})
 
     print(wandb_df)

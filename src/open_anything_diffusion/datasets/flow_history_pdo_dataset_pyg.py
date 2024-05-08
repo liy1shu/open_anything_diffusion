@@ -3,7 +3,7 @@ from typing import Protocol, cast
 import torch
 import torch_geometric.data as tgd
 
-from open_anything_diffusion.datasets.flow_history_dataset import FlowHistoryDataset
+from open_anything_diffusion.datasets.flow_history_pdo_dataset import FlowHistoryDataset
 from open_anything_diffusion.datasets.flow_trajectory_dataset import (
     FlowTrajectoryDataset,
 )

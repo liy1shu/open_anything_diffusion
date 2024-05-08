@@ -4,24 +4,22 @@ import hydra
 import lightning as L
 import omegaconf
 import pandas as pd
-import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import wandb
 
 from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
-from open_anything_diffusion.models.flow_diffuser_dgdit import (
-    FlowTrajectoryDiffuserInferenceModule_DGDiT,
-)
 from open_anything_diffusion.models.flow_diffuser_dit import (
     FlowTrajectoryDiffuserInferenceModule_DiT,
+)
+from open_anything_diffusion.models.flow_diffuser_hisdit import (
+    FlowTrajectoryDiffuserInferenceModule_HisDiT,
 )
 from open_anything_diffusion.models.flow_diffuser_pndit import (
     FlowTrajectoryDiffuserInferenceModule_PNDiT,
 )
-from open_anything_diffusion.models.flow_trajectory_diffuser import (
-    FlowTrajectoryDiffuserInferenceModule_PN2,
-)
-from open_anything_diffusion.models.modules.dit_models import DGDiT, DiT, PN2DiT
+from open_anything_diffusion.models.modules.dit_models import DiT, PN2DiT
+from open_anything_diffusion.models.modules.history_encoder import HistoryEncoder
+from open_anything_diffusion.models.modules.history_translator import HistoryTranslator
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
 
 data_module_class = {
@@ -29,16 +27,19 @@ data_module_class = {
 }
 
 inference_module_class = {
-    "diffuser_pn++": FlowTrajectoryDiffuserInferenceModule_PN2,
-    "diffuser_dgdit": FlowTrajectoryDiffuserInferenceModule_DGDiT,
     "diffuser_dit": FlowTrajectoryDiffuserInferenceModule_DiT,
+    "diffuser_hisdit": FlowTrajectoryDiffuserInferenceModule_HisDiT,
     "diffuser_pndit": FlowTrajectoryDiffuserInferenceModule_PNDiT,
-    # "trajectory_diffuser_pndit": FlowTrajectoryDiffusionModule_PNDiT,
+}
+
+history_network_class = {
+    "encoder": HistoryEncoder,
+    "translator": HistoryTranslator,
 }
 
 
 @torch.no_grad()
-@hydra.main(config_path="../configs", config_name="eval", version_base="1.3")
+@hydra.main(config_path="../configs", config_name="eval_history", version_base="1.3")
 def main(cfg):
     ######################################################################
     # Torch settings.
@@ -95,28 +96,8 @@ def main(cfg):
         "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
         "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
     }
-    # Create FlowBot dataset
-    fully_closed_datamodule = FlowTrajectoryDataModule(
-        root="/home/yishu/datasets/partnet-mobility",
-        batch_size=1,
-        num_workers=30,
-        n_proc=2,
-        seed=42,
-        trajectory_len=1,  # Only used when training trajectory model
-        special_req="fully-closed",
-        # toy_dataset = {
-        #     "id": "door-1",
-        #     "train-train": ["8994", "9035"],
-        #     "train-test": ["8994", "9035"],
-        #     "test": ["8867"],
-        #     # "train-train": ["8867"],
-        #     # "train-test": ["8867"],
-        #     # "test": ["8867"],
-        # }
-        # toy_dataset=toy_dataset,   # 1) Eval on doors
-        toy_dataset=None,  # 2) Eval on all
-    )
-    randomly_opened_datamodule = FlowTrajectoryDataModule(
+    # Create History dataset
+    datamodule = FlowTrajectoryDataModule(
         root="/home/yishu/datasets/partnet-mobility",
         batch_size=1,
         num_workers=30,
@@ -124,6 +105,7 @@ def main(cfg):
         seed=42,
         trajectory_len=1,  # Only used when training trajectory model
         special_req=None,
+        history=True,
         # toy_dataset = {
         #     "id": "door-1",
         #     "train-train": ["8994", "9035"],
@@ -183,21 +165,21 @@ def main(cfg):
     else:
         in_channels = 1 if cfg.inference.mask_input_channel else 0
 
-    if "pn++" in cfg.model.name:
-        network = pnp.PN2Dense(
-            in_channels=in_channels,
-            out_channels=3 * trajectory_len,
-            p=pnp.PN2DenseParams(),
-        ).cuda()
-    elif "dgdit" in cfg.model.name:
-        network = DGDiT(
-            in_channels=in_channels,
-            depth=5,
-            hidden_size=128,
-            patch_size=1,
-            num_heads=4,
-            n_points=cfg.dataset.n_points,
-        ).cuda()
+    if "hisdit" in cfg.model.name:
+        network = {
+            "DiT": DiT(
+                in_channels=in_channels + 3 + cfg.model.history_dim,
+                depth=5,
+                hidden_size=128,
+                num_heads=4,
+                learn_sigma=True,
+            ).cuda(),
+            "History": history_network_class[cfg.model.history_model](
+                history_dim=cfg.model.history_dim,
+                history_len=cfg.model.history_len,
+                batch_norm=cfg.model.batch_norm,
+            ).cuda(),
+        }
     elif "pndit" in cfg.model.name:
         network = PN2DiT(
             in_channels=in_channels,
@@ -216,8 +198,8 @@ def main(cfg):
             learn_sigma=True,
         ).cuda()
 
-    # Get the checkpoint file. If it's a wandb reference, download.
-    # Otherwise look to disk.
+    # # Get the checkpoint file. If it's a wandb reference, download.
+    # # Otherwise look to disk.
     # checkpoint_reference = cfg.checkpoint.reference
     # if checkpoint_reference.startswith(cfg.wandb.entity):
     #     # download checkpoint locally (if not already cached)
@@ -231,6 +213,7 @@ def main(cfg):
     # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dgdit/2024-03-23/02-45-56/checkpoints/epoch=259-step=408720-val_loss=0.00-weights-only.ckpt'
     # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt'
     ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-04-23/05-01-44/checkpoints/epoch=469-step=1038700-val_loss=0.00-weights-only.ckpt"
+    # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-01/10-18-38/checkpoints/epoch=529-step=293090-val_loss=0.00-weights-only.ckpt'
 
     # # Load the network weights.
     # ckpt = torch.load(ckpt_file)
@@ -283,19 +266,10 @@ def main(cfg):
     ######################################################################
 
     dataloaders = [
-        # # (datamodule.train_val_dataloader(), "train"),
-        # (fully_closed_datamodule.train_dataloader(bsz=1), "closed_door"),
-        # (randomly_opened_datamodule.unseen_dataloader(bsz=1), "open_door"),
-        # Test means door only
-        # # Fullset closed
-        # (fully_closed_datamodule.val_dataloader(bsz=1), "val_closed"),
-        # (fully_closed_datamodule.unseen_dataloader(bsz=1), "test_closed"),
-        # # Fullset open
-        # (randomly_opened_datamodule.val_dataloader(bsz=1), "val_open"),
-        # (randomly_opened_datamodule.unseen_dataloader(bsz=1), "test_open"),
-        # Train set
-        (fully_closed_datamodule.train_val_dataloader(bsz=1), "train_closed"),
-        (randomly_opened_datamodule.train_val_dataloader(bsz=1), "train_opened"),
+        # (datamodule.train_val_dataloader(), "train"),
+        (datamodule.train_val_dataloader(bsz=1), "train"),
+        (datamodule.val_dataloader(bsz=1), "val"),
+        (datamodule.unseen_dataloader(bsz=1), "unseen"),
     ]
 
     trial_time = 50

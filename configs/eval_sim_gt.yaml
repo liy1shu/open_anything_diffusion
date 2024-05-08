@@ -21,7 +21,7 @@ defaults:
 
 seed: 42
 gui: False
-website: False
+website: True
 website_port: None
 
 # This is the checkpoint that we're evaluating. You can change this to whatever you need,

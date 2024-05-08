@@ -8,7 +8,7 @@ from open_anything_diffusion.datasets.flow_history_dataset_pyg import (
 )
 
 
-# Create FlowBot datamodule
+# Create FlowBot history (grasp point, direction, outcome) datamodule
 class FlowHistoryDataModule(L.LightningDataModule):
     def __init__(
         self,

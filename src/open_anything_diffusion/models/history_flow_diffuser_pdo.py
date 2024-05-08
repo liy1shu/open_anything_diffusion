@@ -22,8 +22,8 @@ from open_anything_diffusion.metrics.trajectory import (
 from open_anything_diffusion.models.modules.history_encoder import HistoryEncoder
 
 
-# Flow predictor
-class FlowHistoryDiffusionModule(L.LightningModule):
+# Flow predictor - history: grasp Point, Direction, Outcome (PDO lol)
+class FlowPDOHistoryDiffusionModule(L.LightningModule):
     def __init__(self, network, training_cfg, model_cfg) -> None:
         super().__init__()
         # Training params
@@ -301,7 +301,7 @@ class FlowHistoryDiffusionModule(L.LightningModule):
         return {"diffuser_plot": fig}
 
 
-class FlowHistoryDiffuserInferenceModule(L.LightningModule):
+class FlowPDOHistoryDiffuserInferenceModule(L.LightningModule):
     def __init__(self, network, inference_cfg, model_cfg) -> None:
         super().__init__()
         # Inference params
@@ -535,10 +535,10 @@ class FlowHistoryDiffuserInferenceModule(L.LightningModule):
         return metric_dict, all_directions
 
 
-class FlowHistoryDiffuserSimulationModule(L.LightningModule):
+class FlowPDOHistoryDiffuserSimulationModule(L.LightningModule):
     def __init__(self, network, inference_cfg, model_cfg) -> None:
         super().__init__()
-        self.model = FlowHistoryDiffuserInferenceModule(
+        self.model = FlowPDOHistoryDiffuserInferenceModule(
             network, inference_cfg, model_cfg
         )
 
