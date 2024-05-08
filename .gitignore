@@ -385,7 +385,7 @@ wandb_artifacts/
 logs/
 
 # Results
-# pretrained/
+pretrained/
 results/
 notebooks/artifacts
 notebooks/csv
