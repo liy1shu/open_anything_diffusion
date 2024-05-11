@@ -154,8 +154,8 @@ def main(cfg):
     #     "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
     #     "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
     # }
-    # special_req = "half-half"  # "fully-closed"
-    special_req = None
+    special_req = "half-half"  # "fully-closed"
+    # special_req = None
 
     # Create flow dataset
     datamodule = data_module_class[cfg.dataset.name](

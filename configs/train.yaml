@@ -7,7 +7,7 @@ defaults:
   # Each of these have their own configuration parameters.
   - dataset: trajectory
   # - model: diffuser_dit
-  - model: diffuser_dit
+  - model: diffuser_hisdit
   # - model: pn++ # diffuser_pn++
 
   # History:

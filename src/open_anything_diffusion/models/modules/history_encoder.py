@@ -44,8 +44,14 @@ class PDOHistoryEncoder(nn.Module):
 def get_history_batch(batch):
     """Extracts a single batch of the history data for encoding,
     because each history element is processed separately."""
+    has_history_ids = []
+    no_history_ids = []
     history_datas = []
-    for data in batch.to_data_list():
+    for id, data in enumerate(batch.to_data_list()):
+        if data.K == 0:  # No history
+            no_history_ids.append(id)
+            continue
+        has_history_ids.append(id)
         history_data = []
         # Get start/end positions based on lengths.
 
@@ -68,13 +74,16 @@ def get_history_batch(batch):
             )
 
         history_datas.extend(history_data)
-    return tgd.Batch.from_data_list(history_datas)
+    if len(history_datas) == 0:
+        return no_history_ids, has_history_ids, None  # No has_history batch
+    return no_history_ids, has_history_ids, tgd.Batch.from_data_list(history_datas)
 
 
 def history_latents_to_nested_list(batch, history_latents):
     """Converting history latents from stacked form to nested list"""
     datas = batch.to_data_list()
-    history_lengths = [0] + [data.K.item() for data in datas]
+    # history_lengths = [0] + [data.K.item() for data in datas]
+    history_lengths = [0] + [1 for data in datas]
     ixs = torch.tensor(history_lengths).cumsum(0).tolist()
     post_encoder_latents = []
     for i, data in enumerate(datas):
@@ -87,6 +96,7 @@ def history_latents_to_nested_list(batch, history_latents):
 class HistoryEncoder(L.LightningModule):
     def __init__(self, history_dim=128, history_len=1, batch_norm=False):
         super(HistoryEncoder, self).__init__()
+        self.point_cnts = 1200
         self.history_len = history_len
         assert self.history_len == 1, "currently only supports 1 previous step history"
         self.history_dim = history_dim
@@ -96,13 +106,26 @@ class HistoryEncoder(L.LightningModule):
         else:
             import open_anything_diffusion.models.modules.pn2 as pnp
         self.prev_flow_encoder = pnp.PN2Encoder(in_dim=3, out_dim=history_dim)
+        self.no_history_embedding = nn.Parameter(
+            torch.randn(history_dim), requires_grad=True
+        )
         self.transformer = nn.Transformer(d_model=history_dim)
 
     def forward(self, batch):
-        point_cnts = batch.lengths[0]
+        # point_cnts = batch.lengths[0]
 
-        history_batch = get_history_batch(batch).to(self.device)
-        history_embeds = self.prev_flow_encoder(history_batch)
+        history_embeds = torch.zeros(len(batch.lengths), self.history_dim).to(
+            self.device
+        )  # Also add the no history batch
+        no_history_ids, has_history_ids, history_batch = get_history_batch(batch)
+        # print("bsz = ", len(batch.lengths))
+        if len(has_history_ids) != 0:  # Has history samples
+            history_batch = history_batch.to(self.device)
+            has_history_embeds = self.prev_flow_encoder(history_batch)
+            history_embeds[has_history_ids] += has_history_embeds
+        if len(no_history_ids) != 0:  # Has no history samples
+            history_embeds[no_history_ids] += self.no_history_embedding
+
         history_nested_list = history_latents_to_nested_list(batch, history_embeds)
         src_padded = nn.utils.rnn.pad_sequence(
             history_nested_list, batch_first=False, padding_value=0
@@ -122,7 +145,7 @@ class HistoryEncoder(L.LightningModule):
         )
 
         embeddings = out.permute(1, 0, 2).squeeze(1)  # history step = 1
-        embeddings = embeddings.unsqueeze(1).repeat(1, point_cnts, 1)
+        embeddings = embeddings.unsqueeze(1).repeat(1, self.point_cnts, 1)
         return embeddings
 
 

@@ -137,12 +137,19 @@ class FlowHistoryDataset(tgd.Dataset):
     def get_data(self, obj_id: str, seed=None) -> FlowHistory:
         # Initial randomization parameters.
         # Select the camera.
+        this_sample_open = True
         if self.special_req is None:
             joints = "random" if self.randomize_joints else None
+        elif self.special_req == "half-half":
+            this_sample_open = random.randint(0, 100) < 50
+            # print(this_sample_open)
+            if this_sample_open:  # Open this sample - with history
+                joints = "random"
+            else:  # Close this sample - without history
+                joints = "fully-closed"
         else:
-            joints = (
-                self.special_req
-            )  # TODO: Set to random-oc as for multimodal experiments
+            assert True, f"{self.special_req} mode not supported in history dataset."
+
         camera_xyz = "random" if self.randomize_camera else None
 
         rng = np.random.default_rng(seed)
@@ -151,7 +158,6 @@ class FlowHistoryDataset(tgd.Dataset):
         data_t0 = self._dataset.get(
             obj_id=obj_id, joints=joints, camera_xyz=camera_xyz, seed=seed1
         )
-
         raw_data_obj = self._dataset.pm_objs[obj_id].obj
 
         pos_t0 = data_t0["pos"]
@@ -178,54 +184,32 @@ class FlowHistoryDataset(tgd.Dataset):
 
         # Randomly select a joint to modify by poking through the guts.
         renderer: PybulletRenderer = self._dataset.renderers[obj_id]  # type: ignore
-        # joint_name, joint_type, joint_ix = get_random_joint(
-        #     obj_id=renderer._render_env.obj_id,
-        #     client_id=renderer._render_env.client_id,
-        #     seed=seed2,
-        #     raw_data_obj=raw_data_obj
-        # )
-        interval_cnt = 20
+        K = (
+            0 if not this_sample_open else 1
+        )  # If fully closed - then return None history
+        # print(K)
 
-        n_joints = p.getNumJoints(
-            renderer._render_env.obj_id, renderer._render_env.client_id
+        d_theta = 0
+        joint_name, joint_type, joint_ix = get_random_joint(
+            obj_id=renderer._render_env.obj_id,
+            client_id=renderer._render_env.client_id,
+            seed=seed2,
+            raw_data_obj=raw_data_obj,
         )
-        # articulation_ixs = []
+        if this_sample_open:  # Pick a joint to open
+            joint = raw_data_obj.get_joint(joint_name)
 
-        joint_theta = {}
-        joint_dtheta = {}
-        for joint_ix in range(n_joints):
-            jinfo = p.getJointInfo(
-                renderer._render_env.obj_id, joint_ix, renderer._render_env.client_id
-            )
-            if jinfo[2] == p.JOINT_REVOLUTE or jinfo[2] == p.JOINT_PRISMATIC:
-                joint_name = jinfo[1].decode("UTF-8")
-                joint_type = int(jinfo[2])
+            if joint.limit == None:  # revolute free moving
+                min_theta, max_theta = 0, 2 * math.pi
+            else:
+                min_theta, max_theta = joint.limit
 
-                start_end = raw_data_obj.get_joint(joint_name).limit
-                if start_end is not None:
-                    min_theta, max_theta = start_end
-                    if min_theta >= max_theta:
-                        continue
-                else:
-                    min_theta, max_theta = 0, 2 * math.pi
-                # articulation_ixs.append((joint_name, joint_type, joint_ix, min_theta, max_theta, (max_theta - min_theta) / interval_cnt))
+            assert (
+                max_theta > min_theta
+            ), "Selected a joint with min theta >= max theta?"
 
-                interval_cnt = random.randint(5, 50)
-
-                d_theta = (max_theta - min_theta) / interval_cnt
-                # Joint_name -> theta dict
-                start_ix = random.randint(0, interval_cnt - 2)  # min 1 observation
-                # temp_K = random.randint(1, 20)
-                temp_K = 1
-                end_ix = min(
-                    start_ix + temp_K, interval_cnt - 1
-                )  # upperbound of num_obs-1
-                K = end_ix - start_ix
-
-                joint_theta[joint_name] = (
-                    min_theta + start_ix * d_theta
-                )  # Set start step = 1
-                joint_dtheta[joint_name] = d_theta
+            interval_cnt = random.randint(5, 50)
+            d_theta = (max_theta - min_theta) / interval_cnt
 
         # HACK HACK HACK we need to make sure that the joint is actually in the joint list.
         # This is a bug in the underlying library, annoying.
@@ -243,10 +227,6 @@ class FlowHistoryDataset(tgd.Dataset):
 
         step_id = 0
         while step_id <= K:
-            # Set to inital angle
-            for joint_name in joint_theta.keys():
-                joints_t1[joint_name] = joint_theta[joint_name]
-
             # Describe the action that was taken.
             action = np.zeros(len(joints_t0))
             action[joint_ix] = d_theta
@@ -305,9 +285,8 @@ class FlowHistoryDataset(tgd.Dataset):
 
             step_id += 1
 
-            # Rotate for an angle
-            for joint_name in joint_theta.keys():
-                joint_theta[joint_name] += joint_dtheta[joint_name]
+            # Rotate the target joint for an angle
+            joints_t1[joint_name] += d_theta
 
         # start_ix = random.randint(0, num_obs - 2) # min 1 observation
         # temp_K = random.randint(1, 20)
@@ -318,9 +297,9 @@ class FlowHistoryDataset(tgd.Dataset):
         curr_pos = history[-1]
         flow = flow_history[-1]
 
-        history = history[:-1]
-        flow_history = flow_history[:-1]
-        lengths = lengths[:-1]
+        history = history[:-1] if K >= 1 else history[-1] * 0
+        flow_history = flow_history[:-1] if K >= 1 else flow_history[-1] * 0
+        lengths = lengths[:-1] if K >= 1 else lengths[-1]
 
         history = history.reshape(-1, history.shape[-1])  #
         flow_history = flow_history.reshape(-1, flow_history.shape[-1])
