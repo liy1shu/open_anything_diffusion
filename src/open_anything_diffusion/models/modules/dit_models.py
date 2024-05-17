@@ -461,6 +461,199 @@ class PN2DiT(nn.Module):
         return torch.cat([eps, rest], dim=1)
 
 
+class PN2HisDiT(nn.Module):  # With history latent everywhere version
+    """
+    Diffusion model with a Transformer backbone.
+    """
+
+    def __init__(
+        self,
+        history_embed_dim=128,
+        input_size=[30, 40],
+        patch_size=1,
+        in_channels=3,
+        hidden_size=1152,
+        depth=28,
+        num_heads=16,
+        mlp_ratio=4.0,
+        class_dropout_prob=0.1,
+        num_classes=1000,
+        pos_embed_freq_L=10,
+        n_points=1200,
+        time_embed_dim=64,
+        learn_sigma=True,
+    ):
+        super().__init__()
+        self.learn_sigma = learn_sigma
+        self.in_channels = in_channels
+        self.out_channels = in_channels * 2 if learn_sigma else in_channels
+        self.patch_size = patch_size
+        self.num_heads = num_heads
+        self.n_points = n_points
+
+        self.h, self.w = input_size[0], input_size[1]
+
+        # # 0) Pure input
+        # self.x_embedder = PatchEmbed(input_size, patch_size, in_channels + pos_embed_freq_L * 6, hidden_size, bias=True)
+        # # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
+        # w = self.x_embedder.proj.weight.data
+        # nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
+        # nn.init.constant_(self.x_embedder.proj.bias, 0)
+
+        # 1) Point Cloud features
+        self.x_embedder = pnp.PN2DenseLatentEncodingEverywhere(
+            history_embed_dim=history_embed_dim,
+            in_channels=3,
+            out_channels=hidden_size,
+        )
+
+        # self.x_embedder = PatchEmbed(input_size, patch_size, in_channels + 3, hidden_size, bias=True)
+        self.t_embedder = TimestepEmbedder(hidden_size)
+        self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
+        # num_patches = self.x_embedder.num_patches
+        num_patches = self.n_points
+        # Will use fixed sin-cos embedding:
+        # self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
+
+        self.blocks = nn.ModuleList(
+            [
+                DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio)
+                for _ in range(depth)
+            ]
+        )
+        self.final_layer = FinalLayer(hidden_size, patch_size, self.out_channels)
+        self.initialize_weights()
+        self.pos_embed_freq_L = pos_embed_freq_L
+
+    def initialize_weights(self):
+        # Initialize transformer layers:
+        def _basic_init(module):
+            if isinstance(module, nn.Linear):
+                torch.nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+
+        self.apply(_basic_init)
+
+        # # Initialize (and freeze) pos_embed by sin-cos embedding:
+        # pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.x_embedder.num_patches ** 0.5))
+        # self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
+
+        # Initialize label embedding table:
+        nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
+
+        # Initialize timestep embedding MLP:
+        nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
+        nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
+
+        # Zero-out adaLN modulation layers in DiT blocks:
+        for block in self.blocks:
+            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
+
+        # Zero-out output layers:
+        nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
+        nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
+        nn.init.constant_(self.final_layer.linear.weight, 0)
+        nn.init.constant_(self.final_layer.linear.bias, 0)
+
+    def unpatchify(self, x):
+        """
+        x: (N, T, patch_size**2 * C)
+        imgs: (N, H, W, C)
+        """
+        c = self.out_channels
+        p = self.patch_size
+        # h = w = int(x.shape[1] ** 0.5)
+        h, w = self.h, self.w
+        assert h * w == x.shape[1]
+
+        x = x.reshape(shape=(x.shape[0], h, w, p, p, c))
+        x = torch.einsum("nhwpqc->nchpwq", x)
+        imgs = x.reshape(shape=(x.shape[0], c, h * p, w * p))
+        return imgs
+
+    def pcd_positional_encoding(self, xyz):
+        """
+        Apply sinusoidal positional encoding to the given 3D coordinates.
+
+        :param xyz: A numpy array of shape (N, 3), where N is the number of points, and each point has x, y, z coordinates.
+        :return: A numpy array of shape (N, 6*L) containing the positional embeddings.
+        """
+
+        L = self.pos_embed_freq_L
+
+        # Initialize an array to hold the positional encodings
+        embeddings = np.zeros((xyz.shape[0], 6 * L))
+
+        # Frequencies: 2^0, 2^1, ..., 2^(L-1)
+        frequencies = 2 ** np.arange(L)
+
+        # Apply sinusoidal encoding
+        for i, freq in enumerate(frequencies):
+            for j, func in enumerate([np.sin, np.cos]):
+                embeddings[:, (6 * i + 2 * j) : (6 * i + 2 * j + 3)] = func(
+                    2 * np.pi * xyz.detach().cpu().numpy() * freq
+                )
+
+        return torch.from_numpy(embeddings).float().cuda()
+
+    def forward(self, x, t, pos, context):
+        """
+        Forward pass of DiT.
+        x: (N, C, H, W) tensor of spatial inputs (images or latent representations of images)
+        t: (N,) tensor of diffusion timesteps
+        pos: (N, H*W, C)
+        """
+        # # 0) Takes original point cloud
+        # pos_embed = self.pcd_positional_encoding(torch.flatten(pos, start_dim=0, end_dim=1))  # N*T * D
+        # x = torch.flatten(x, start_dim=2, end_dim=3).permute(0, 2, 1)  # (N, H*W, C)
+        # x = torch.concat((x, pos_embed.reshape(x.shape[0], x.shape[1], -1)), dim=-1)
+        # x = self.x_embedder(x.reshape(x.shape[0], -1, 30, 40))
+        # 1) Take pointnet++ encoded point cloud
+        context.x = (
+            torch.flatten(x, start_dim=2, end_dim=3).permute(0, 2, 1).reshape(-1, 3)
+        )
+        encoded_pcd = self.x_embedder(context.cuda(), latents=context.history_embed)
+        x = encoded_pcd.reshape(x.shape[0], 1200, -1)
+
+        # # 2) Take DGCNN encoded point cloud
+        # # print(torch.flatten(x, start_dim=2, end_dim=3).shape, pos.permute(0, 2, 1).shape)
+        # x = torch.cat(
+        #     (torch.flatten(x, start_dim=2, end_dim=3), pos.permute(0, 2, 1)), dim=1
+        # )
+        # encoded_pcd = self.x_embedder(x, t, pos.permute(0, 2, 1)).sample
+        # x = encoded_pcd.permute(0, 2, 1)
+
+        t = self.t_embedder(t)  # (N, D)
+
+        # print("x", x.shape, "t", t.shape)
+
+        # y = self.y_embedder(y, self.training)    # (N, D)
+        c = t
+        # print("c", c.shape)                              # (N, D)
+        for block in self.blocks:
+            x = block(x, c)  # (N, T, D)
+        x = self.final_layer(x, c)  # (N, T, patch_size ** 2 * out_channels)
+        # print("after final layer:", x.shape)
+        x = self.unpatchify(x)  # (N, out_channels, H, W)
+        return x
+
+    def forward_with_cfg(self, x, t, cfg_scale, pos, context):
+        """
+        Forward pass of DiT, but also batches the unconditional forward pass for classifier-free guidance.
+        """
+        # https://github.com/openai/glide-text2im/blob/main/notebooks/text2im.ipynb
+        # half = x[: len(x) // 2]
+        model_out = self.forward(x, t, pos, context)
+        # For exact reproducibility reasons, we apply classifier-free guidance on only
+        # three channels by default. The standard approach to cfg applies it to all channels.
+        # This can be done by uncommenting the following line and commenting-out the line following that.
+        # eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
+        eps, rest = model_out[:, : self.in_channels], model_out[:, self.in_channels :]
+        return torch.cat([eps, rest], dim=1)
+
+
 class DGDiT(nn.Module):
     """
     Diffusion model with a Transformer backbone.

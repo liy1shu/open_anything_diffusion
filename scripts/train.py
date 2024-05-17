@@ -22,6 +22,9 @@ from open_anything_diffusion.models.flow_diffuser_dit import (
 from open_anything_diffusion.models.flow_diffuser_hisdit import (
     FlowTrajectoryDiffusionModule_HisDiT,
 )
+from open_anything_diffusion.models.flow_diffuser_hispndit import (
+    FlowTrajectoryDiffusionModule_HisPNDiT,
+)
 from open_anything_diffusion.models.flow_diffuser_pndit import (
     FlowTrajectoryDiffusionModule_PNDiT,
 )
@@ -36,7 +39,12 @@ from open_anything_diffusion.models.flow_trajectory_diffuser import (
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowTrajectoryTrainingModule,
 )
-from open_anything_diffusion.models.modules.dit_models import DGDiT, DiT, PN2DiT
+from open_anything_diffusion.models.modules.dit_models import (
+    DGDiT,
+    DiT,
+    PN2DiT,
+    PN2HisDiT,
+)
 from open_anything_diffusion.models.modules.history_encoder import HistoryEncoder
 from open_anything_diffusion.models.modules.history_translator import HistoryTranslator
 from open_anything_diffusion.utils.script_utils import (
@@ -58,6 +66,7 @@ training_module_class = {
     "trajectory_diffuser_dit": FlowTrajectoryDiffusionModule_DiT,
     # With history
     "trajectory_diffuser_hisdit": FlowTrajectoryDiffusionModule_HisDiT,
+    "trajectory_diffuser_hispndit": FlowTrajectoryDiffusionModule_HisPNDiT,
 }
 history_network_class = {
     "encoder": HistoryEncoder,
@@ -254,15 +263,6 @@ def main(cfg):
             num_heads=4,
             n_points=cfg.dataset.n_points,
         ).cuda()
-    elif "pndit" in cfg.model.name:
-        network = PN2DiT(
-            in_channels=in_channels,
-            depth=5,
-            hidden_size=128,
-            patch_size=1,
-            num_heads=4,
-            n_points=cfg.dataset.n_points,
-        )
     elif "hisdit" in cfg.model.name:
         network = {
             "DiT": DiT(
@@ -276,8 +276,36 @@ def main(cfg):
                 history_dim=cfg.model.history_dim,
                 history_len=cfg.model.history_len,
                 batch_norm=cfg.model.batch_norm,
+                repeat_dim=True,
             ).cuda(),
         }
+    elif "hispndit" in cfg.model.name:
+        network = {
+            "DiT": PN2HisDiT(
+                history_embed_dim=cfg.model.history_dim,
+                in_channels=in_channels,
+                depth=5,
+                hidden_size=128,
+                num_heads=4,
+                learn_sigma=True,
+            ).cuda(),
+            "History": history_network_class[cfg.model.history_model](
+                history_dim=cfg.model.history_dim,
+                history_len=cfg.model.history_len,
+                batch_norm=cfg.model.batch_norm,
+                transformer=False,
+                repeat_dim=False,
+            ).cuda(),
+        }
+    elif "pndit" in cfg.model.name:
+        network = PN2DiT(
+            in_channels=in_channels,
+            depth=5,
+            hidden_size=128,
+            patch_size=1,
+            num_heads=4,
+            n_points=cfg.dataset.n_points,
+        )
     elif "dit" in cfg.model.name:
         network = DiT(
             in_channels=in_channels + 3,

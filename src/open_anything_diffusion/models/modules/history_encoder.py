@@ -94,7 +94,14 @@ def history_latents_to_nested_list(batch, history_latents):
 
 # Previous flow history
 class HistoryEncoder(L.LightningModule):
-    def __init__(self, history_dim=128, history_len=1, batch_norm=False):
+    def __init__(
+        self,
+        history_dim=128,
+        history_len=1,
+        batch_norm=False,
+        transformer=True,
+        repeat_dim=True,
+    ):
         super(HistoryEncoder, self).__init__()
         self.point_cnts = 1200
         self.history_len = history_len
@@ -109,7 +116,10 @@ class HistoryEncoder(L.LightningModule):
         self.no_history_embedding = nn.Parameter(
             torch.randn(history_dim), requires_grad=True
         )
-        self.transformer = nn.Transformer(d_model=history_dim)
+        self.repeat_dim = repeat_dim
+        self.transformer = transformer
+        if self.transformer:
+            self.transformer = nn.Transformer(d_model=history_dim)
 
     def forward(self, batch):
         # point_cnts = batch.lengths[0]
@@ -126,26 +136,33 @@ class HistoryEncoder(L.LightningModule):
         if len(no_history_ids) != 0:  # Has no history samples
             history_embeds[no_history_ids] += self.no_history_embedding
 
-        history_nested_list = history_latents_to_nested_list(batch, history_embeds)
-        src_padded = nn.utils.rnn.pad_sequence(
-            history_nested_list, batch_first=False, padding_value=0
-        )
-        # Create a mask for the padded sequences.
-        src_mask = (src_padded == 0.0).all(dim=-1)
+        if self.transformer:
+            history_nested_list = history_latents_to_nested_list(batch, history_embeds)
+            src_padded = nn.utils.rnn.pad_sequence(
+                history_nested_list, batch_first=False, padding_value=0
+            )
+            # Create a mask for the padded sequences.
+            src_mask = (src_padded == 0.0).all(dim=-1)
 
-        # This is our query vector. It has shape [S, N, E], where S is the sequence length, N is the batch size, and E is the embedding size.
-        tgt = torch.ones(1, batch.num_graphs, self.history_dim).to(self.device)
+            # This is our query vector. It has shape [S, N, E], where S is the sequence length, N is the batch size, and E is the embedding size.
+            tgt = torch.ones(1, batch.num_graphs, self.history_dim).to(self.device)
 
-        # The transformer also expects the input to be of type float.
-        src_padded = src_padded.float()
-        tgt = tgt.float()
-        # Pass the input through the transformer, with mask and tgt.
-        out = self.transformer(
-            src_padded, tgt, src_key_padding_mask=src_mask.transpose(1, 0)
-        )
+            # The transformer also expects the input to be of type float.
+            src_padded = src_padded.float()
+            tgt = tgt.float()
+            # Pass the input through the transformer, with mask and tgt.
+            out = self.transformer(
+                src_padded, tgt, src_key_padding_mask=src_mask.transpose(1, 0)
+            )
 
-        embeddings = out.permute(1, 0, 2).squeeze(1)  # history step = 1
-        embeddings = embeddings.unsqueeze(1).repeat(1, self.point_cnts, 1)
+            embeddings = out.permute(1, 0, 2).squeeze(1)  # history step = 1
+        else:
+            embeddings = history_embeds
+
+        if self.repeat_dim == True:  # To point-wise features to concat to DiT
+            embeddings = embeddings.unsqueeze(1).repeat(1, self.point_cnts, 1)
+        else:
+            embeddings = embeddings.unsqueeze(1)
         return embeddings
 
 
@@ -162,7 +179,7 @@ if __name__ == "__main__":
     import numpy as np
     from torch_geometric.data import Batch, Data
 
-    model = HistoryEncoder()
+    model = HistoryEncoder(transformer=True)
     data = Data(
         num_points=torch.tensor([1200]),  # N: shape of point cloud
         pos=torch.from_numpy(np.zeros((1200, 3))).float(),

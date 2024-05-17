@@ -31,7 +31,6 @@ def get_random_joint(obj_id, client_id, seed=None, raw_data_obj=None):
         if jinfo[2] == p.JOINT_REVOLUTE or jinfo[2] == p.JOINT_PRISMATIC:
             joint_name = jinfo[1].decode("UTF-8")
             joint_type = int(jinfo[2])
-
             start_end = raw_data_obj.get_joint(joint_name).limit
             if start_end is not None:
                 start, end = start_end
@@ -152,11 +151,16 @@ class FlowHistoryDataset(tgd.Dataset):
             joints = "fully-closed"
         else:
             assert True, f"{self.special_req} mode not supported in history dataset."
-
         camera_xyz = "random" if self.randomize_camera else None
 
         rng = np.random.default_rng(seed)
         seed1, seed2, seed3, seed4 = rng.bit_generator._seed_seq.spawn(4)  # type: ignore
+        _ = self._dataset.get(  # Just to create a renderer
+            obj_id=obj_id,
+            joints=joints,
+            camera_xyz=camera_xyz,
+            seed=seed1,
+        )
 
         raw_data_obj = self._dataset.pm_objs[obj_id].obj
         # Randomly select a joint to modify by poking through the guts.
@@ -171,15 +175,16 @@ class FlowHistoryDataset(tgd.Dataset):
             seed=seed2,
             raw_data_obj=raw_data_obj,
         )
-
-        data_t0 = self._dataset.get(
-            obj_id=obj_id,
-            joints=joints,
-            camera_xyz=camera_xyz,
-            seed=seed1,
-            random_joint_id=joint_ix,
+        # print(joint_name, "open" if this_sample_open else "close")
+        data_t0 = (
+            self._dataset.get(  # Re-render the object with one specific random joint!
+                obj_id=obj_id,
+                joints=joints,
+                camera_xyz=camera_xyz,
+                seed=seed1,
+                random_joint_id=joint_name,
+            )
         )
-
         pos_t0 = data_t0["pos"]
 
         # Compute the flow + mask at that time.
@@ -199,6 +204,8 @@ class FlowHistoryDataset(tgd.Dataset):
         # Camera should be the same.
         camera_xyz_t1 = data_t0["T_world_cam"][:3, 3]
         joints_t0 = data_t0["angles"]
+
+        # print("t0:", joints_t0)
 
         ###################################################################
 
@@ -239,6 +246,7 @@ class FlowHistoryDataset(tgd.Dataset):
 
         step_id = 0
         while step_id <= K:
+            # print("t1:", joints_t1)
             # Describe the action that was taken.
             action = np.zeros(len(joints_t0))
             action[joint_ix] = d_theta
@@ -309,9 +317,12 @@ class FlowHistoryDataset(tgd.Dataset):
         curr_pos = history[-1]
         flow = flow_history[-1]
 
-        history = history[:-1] if K >= 1 else history[-1] * 0
-        flow_history = flow_history[:-1] if K >= 1 else flow_history[-1] * 0
-        lengths = lengths[:-1] if K >= 1 else lengths[-1]
+        history = (
+            history[:-1] if K >= 1 else history * 0
+        )  # No history, but the shape should be the same
+        flow_history = flow_history[:-1] if K >= 1 else flow_history * 0
+        lengths = lengths[:-1] if K >= 1 else lengths
+        # print(history.shape, flow_history.shape, lengths)
 
         history = history.reshape(-1, history.shape[-1])  #
         flow_history = flow_history.reshape(-1, flow_history.shape[-1])
