@@ -398,3 +398,4 @@ src/open_anything_diffusion/models/wandb
 *.pth
 *.csv
 notebooks/*.csv
+notebooks/*.xlsx
