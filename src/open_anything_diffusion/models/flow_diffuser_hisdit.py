@@ -1,6 +1,7 @@
 from typing import Any, Dict
 
 import lightning as L
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import rpad.visualize_3d.plots as v3p
@@ -629,9 +630,14 @@ class FlowTrajectoryDiffuserSimulationModule_HisDiT(L.LightningModule):
     def load_from_ckpt(self, ckpt_file):
         self.model.load_from_ckpt(ckpt_file)
 
-    def forward(self, data, history_pcd, history_flow) -> torch.Tensor:  # type: ignore
+    def forward(self, data, history_pcd=None, history_flow=None) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
         rgb, depth, seg, P_cam, P_world, pc_seg, segmap = data
+        K = self.history_len
+        if history_pcd is None:
+            history_pcd = np.zeros_like(P_world)
+            history_flow = np.zeros_like(P_world)
+            K = 0
         data = tgd.Data(
             pos=torch.from_numpy(P_world).float().cuda(),
             history=torch.from_numpy(history_pcd).float().cuda(),

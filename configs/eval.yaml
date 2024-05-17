@@ -71,7 +71,8 @@ checkpoint:
 
   # run_id: libhkzgt   # fullset half-half newsplit flowbot
   # run_id: 9s85cqw7   # fullset half-half newsplit diffusion dit
-  run_id: fj50vjmg     # fullset half-half newsplit diffusion pndit
+  # run_id: fj50vjmg     # fullset half-half newsplit diffusion pndit
+  run_id: lntyypny     # fullset half-half newsplit diffusion pndit wobn
 
   reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
 

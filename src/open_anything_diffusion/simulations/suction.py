@@ -289,11 +289,9 @@ class PMSuctionSim:
         # p.setTimeStep(1.0/240)
         for id, (point, contact_vector) in enumerate(zip(points, contact_vectors)):
             # Normalize contact vector.
-            # contact_vector = -1 * contact_vector
             contact_vector = (contact_vector / contact_vector.norm(dim=-1)).float()
             p_teleport = (torch.from_numpy(point) + contact_vector * standoff_d).float()
-            # breakpoint()
-
+            # print(p_teleport)
             e_z_init = torch.tensor([0, 0, 1.0]).float()
             e_y = -contact_vector
             e_x = torch.cross(-contact_vector, e_z_init)
@@ -314,8 +312,9 @@ class PMSuctionSim:
             contact = self.gripper.detect_contact(self.render_env.obj_id)
             max_steps = 500
             curr_steps = 0
-            self.gripper.set_velocity(-contact_vector * 0.4, [0, 0, 0])
+            # self.gripper.set_velocity(-contact_vector * 0.4, [0, 0, 0])
             while not contact and curr_steps < max_steps:
+                self.gripper.set_velocity(-contact_vector * 0.4, [0, 0, 0])
                 p.stepSimulation(self.render_env.client_id)
                 # print(point, p.getBasePositionAndOrientation(self.gripper.body_id),p.getBasePositionAndOrientation(self.gripper.base_id))
                 if video_writer is not None and curr_steps % 50 == 49:
@@ -1239,7 +1238,7 @@ def run_trial_with_history(
         )
 
     env.attach()
-
+    # breakpoint()
     pc_obs = env.render(filter_nonobj_pts=True, n_pts=n_pts)
     success = False
 
@@ -1311,7 +1310,7 @@ def run_trial_with_history(
             )
 
             # (1) Strategy 1 - Don't change grasp point
-            ## (2) Strategy 2 - Change grasp point when leverage difference is large
+            # (2) Strategy 2 - Change grasp point when leverage difference is large
             lev_diff_thres = 0.2
             no_movement_thres = -1
 
@@ -1470,9 +1469,10 @@ def run_trial_with_history(
                 break
 
             # Previous step
-            use_history = (
-                sim_trajectory[global_step] - sim_trajectory[global_step - 1]
-            ) > 0.01
+            # use_history = (   # If last step makes progress
+            #     sim_trajectory[global_step] - sim_trajectory[global_step - 1]
+            # ) > 0.01
+            use_history = True  # Always use history when there is history
             prev_flow_pred = pred_flow.clone()
             prev_point_cloud = copy.deepcopy(pc_obs[4])
             pc_obs = env.render(filter_nonobj_pts=True, n_pts=1200)

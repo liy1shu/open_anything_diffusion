@@ -210,9 +210,12 @@ def main(cfg):
     elif "dit" in cfg.model.name:
         network = DiT(
             in_channels=in_channels + 3,
-            depth=5,
-            hidden_size=128,
-            num_heads=4,
+            # depth=5,
+            # hidden_size=128,
+            # num_heads=4,
+            depth=12,
+            hidden_size=384,
+            num_heads=6,
             learn_sigma=True,
         ).cuda()
 
@@ -230,7 +233,10 @@ def main(cfg):
     # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-23/02-47-04/checkpoints/epoch=299-step=235800-val_loss=0.00-weights-only.ckpt'
     # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dgdit/2024-03-23/02-45-56/checkpoints/epoch=259-step=408720-val_loss=0.00-weights-only.ckpt'
     # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt'
-    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-04-23/05-01-44/checkpoints/epoch=469-step=1038700-val_loss=0.00-weights-only.ckpt"
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-04-23/05-01-44/checkpoints/epoch=469-step=1038700-val_loss=0.00-weights-only.ckpt"
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-05-02/12-35-27/checkpoints/epoch=109-step=243100-val_loss=0.00-weights-only.ckpt"
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-05-13/05-20-34/checkpoints/epoch=469-step=1038700.ckpt"
+    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-05-13/05-20-34/checkpoints/epoch=129-step=287300-val_loss=0.00-weights-only.ckpt"
 
     # # Load the network weights.
     # ckpt = torch.load(ckpt_file)
@@ -287,15 +293,15 @@ def main(cfg):
         # (fully_closed_datamodule.train_dataloader(bsz=1), "closed_door"),
         # (randomly_opened_datamodule.unseen_dataloader(bsz=1), "open_door"),
         # Test means door only
-        # # Fullset closed
-        # (fully_closed_datamodule.val_dataloader(bsz=1), "val_closed"),
-        # (fully_closed_datamodule.unseen_dataloader(bsz=1), "test_closed"),
-        # # Fullset open
-        # (randomly_opened_datamodule.val_dataloader(bsz=1), "val_open"),
-        # (randomly_opened_datamodule.unseen_dataloader(bsz=1), "test_open"),
-        # Train set
-        (fully_closed_datamodule.train_val_dataloader(bsz=1), "train_closed"),
-        (randomly_opened_datamodule.train_val_dataloader(bsz=1), "train_opened"),
+        # Fullset closed
+        (fully_closed_datamodule.val_dataloader(bsz=1), "val_closed"),
+        (fully_closed_datamodule.unseen_dataloader(bsz=1), "test_closed"),
+        # Fullset open
+        (randomly_opened_datamodule.val_dataloader(bsz=1), "val_open"),
+        (randomly_opened_datamodule.unseen_dataloader(bsz=1), "test_open"),
+        # # Train set
+        # (fully_closed_datamodule.train_val_dataloader(bsz=1), "train_closed"),
+        # (randomly_opened_datamodule.train_val_dataloader(bsz=1), "train_opened"),
     ]
 
     trial_time = 50

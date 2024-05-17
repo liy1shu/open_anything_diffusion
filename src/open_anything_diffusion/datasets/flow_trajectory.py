@@ -25,6 +25,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         seed: int = 42,
         special_req: str = None,
         toy_dataset: dict = None,
+        n_repeat: int = 100,  # By default, repeat training dataset by 100
     ):
         super().__init__()
         self.batch_size = batch_size
@@ -61,7 +62,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 special_req,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             ),
-            n_repeat=100,
+            n_repeat=n_repeat,
             # n_repeat=1,
             n_workers=num_workers,
             n_proc_per_worker=n_proc,

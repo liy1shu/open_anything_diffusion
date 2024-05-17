@@ -502,7 +502,7 @@ if __name__ == "__main__":
         ).cuda(),
     }
 
-    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-01/10-18-38/checkpoints/epoch=529-step=293090-val_loss=0.00-weights-only.ckpt"
+    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-10/12-09-08/checkpoints/epoch=439-step=243320-val_loss=0.00-weights-only.ckpt"
     history_model = FlowTrajectoryDiffuserSimulationModule_HisDiT(
         network, inference_cfg=cfg.inference, model_cfg=cfg.model
     ).cuda()
@@ -512,12 +512,12 @@ if __name__ == "__main__":
     # trial_figs, trial_results, sim_trajectory = trial_with_diffuser(
     trial_figs, trial_results, sim_trajectory = trial_with_diffuser_history(
         # obj_id="8877",
-        obj_id="100444",
-        model=model,
+        obj_id="8877",
+        model=history_model,
         history_model=history_model,
         n_step=30,
         gui=False,
         website=cfg.website,
         all_joint=False,
-        available_joints=["link_0"],
+        available_joints=["link_1"],
     )

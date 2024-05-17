@@ -97,7 +97,30 @@ def main(cfg):
         "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
     }
     # Create History dataset
-    datamodule = FlowTrajectoryDataModule(
+    fully_closed_datamodule = FlowTrajectoryDataModule(
+        root="/home/yishu/datasets/partnet-mobility",
+        batch_size=1,
+        num_workers=30,
+        n_proc=2,
+        seed=42,
+        trajectory_len=1,  # Only used when training trajectory model
+        special_req="fully-closed",
+        history=True,
+        # toy_dataset = {
+        #     "id": "door-1",
+        #     "train-train": ["8994", "9035"],
+        #     "train-test": ["8994", "9035"],
+        #     "test": ["8867"],
+        #     # "train-train": ["8867"],
+        #     # "train-test": ["8867"],
+        #     # "test": ["8867"],
+        # }
+        # toy_dataset=toy_dataset,   # 1) Eval on doors
+        toy_dataset=None,  # 2) Eval on all
+        n_repeat=1,
+    )
+
+    randomly_opened_datamodule = FlowTrajectoryDataModule(
         root="/home/yishu/datasets/partnet-mobility",
         batch_size=1,
         num_workers=30,
@@ -117,6 +140,7 @@ def main(cfg):
         # }
         # toy_dataset=toy_dataset,   # 1) Eval on doors
         toy_dataset=None,  # 2) Eval on all
+        n_repeat=1,
     )
 
     ######################################################################
@@ -211,9 +235,10 @@ def main(cfg):
 
     # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-23/02-47-04/checkpoints/epoch=299-step=235800-val_loss=0.00-weights-only.ckpt'
     # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dgdit/2024-03-23/02-45-56/checkpoints/epoch=259-step=408720-val_loss=0.00-weights-only.ckpt'
-    # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt'
-    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-04-23/05-01-44/checkpoints/epoch=469-step=1038700-val_loss=0.00-weights-only.ckpt"
+    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt"
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-04-23/05-01-44/checkpoints/epoch=469-step=1038700-val_loss=0.00-weights-only.ckpt"
     # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-01/10-18-38/checkpoints/epoch=529-step=293090-val_loss=0.00-weights-only.ckpt'
+    # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-10/12-09-08/checkpoints/epoch=439-step=243320-val_loss=0.00-weights-only.ckpt'
 
     # # Load the network weights.
     # ckpt = torch.load(ckpt_file)
@@ -267,9 +292,13 @@ def main(cfg):
 
     dataloaders = [
         # (datamodule.train_val_dataloader(), "train"),
-        (datamodule.train_val_dataloader(bsz=1), "train"),
-        (datamodule.val_dataloader(bsz=1), "val"),
-        (datamodule.unseen_dataloader(bsz=1), "unseen"),
+        # (datamodule.train_val_dataloader(bsz=1), "train"),
+        (fully_closed_datamodule.train_val_dataloader(bsz=1), "train_closed"),
+        (randomly_opened_datamodule.train_val_dataloader(bsz=1), "train_open"),
+        (fully_closed_datamodule.val_dataloader(bsz=1), "val_closed"),
+        (randomly_opened_datamodule.val_dataloader(bsz=1), "val_open"),
+        (fully_closed_datamodule.unseen_dataloader(bsz=1), "door_closed"),
+        (randomly_opened_datamodule.unseen_dataloader(bsz=1), "door_open"),
     ]
 
     trial_time = 50

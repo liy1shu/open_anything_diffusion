@@ -7,7 +7,7 @@ defaults:
   # Each of these have their own configuration parameters.
   # - dataset: flowbot
   - dataset: trajectory
-  - model: diffuser_pndit
+  - model: diffuser_hisdit
   # - model: diffuser_hisdit
 
   # A set of inference settings for the model. Note that these may be different
@@ -70,11 +70,14 @@ checkpoint:
 
   # run_id: libhkzgt   # fullset half-half newsplit flowbot
   # run_id: 9s85cqw7   # fullset half-half newsplit diffusion dit
-  run_id: fj50vjmg     # fullset half-half newsplit diffusion pndit
+  # run_id: fj50vjmg     # fullset half-half newsplit diffusion pndit
 
   # run_id: uphfwwg8        # door history with batch norm
   # run_id: kttwciki         # door history w/o batch norm
   # run_id: 5ora3vsz
+
+  # History
+  run_id: c7l4ss3d  # latent everywhere, learnable feature for 0 history
 
   reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
 
@@ -103,8 +106,9 @@ wandb:
 
   # group: door-half-half
   # group: fullset-half-half
-  group: fullset-half-half-newsplit
+  # group: fullset-half-half-newsplit
   # group: door_history
   # group: fullset_history
+  group: fullset-half-half-history
 
 metric_output_dir: './logs'

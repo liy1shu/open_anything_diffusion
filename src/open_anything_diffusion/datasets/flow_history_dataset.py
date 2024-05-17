@@ -147,6 +147,9 @@ class FlowHistoryDataset(tgd.Dataset):
                 joints = "random"
             else:  # Close this sample - without history
                 joints = "fully-closed"
+        elif self.special_req == "fully-closed":
+            this_sample_open = False
+            joints = "fully-closed"
         else:
             assert True, f"{self.special_req} mode not supported in history dataset."
 
@@ -155,10 +158,27 @@ class FlowHistoryDataset(tgd.Dataset):
         rng = np.random.default_rng(seed)
         seed1, seed2, seed3, seed4 = rng.bit_generator._seed_seq.spawn(4)  # type: ignore
 
-        data_t0 = self._dataset.get(
-            obj_id=obj_id, joints=joints, camera_xyz=camera_xyz, seed=seed1
-        )
         raw_data_obj = self._dataset.pm_objs[obj_id].obj
+        # Randomly select a joint to modify by poking through the guts.
+        renderer: PybulletRenderer = self._dataset.renderers[obj_id]  # type: ignore
+        (
+            joint_name,
+            joint_type,
+            joint_ix,
+        ) = get_random_joint(  # Choose a joint to manipulate with
+            obj_id=renderer._render_env.obj_id,
+            client_id=renderer._render_env.client_id,
+            seed=seed2,
+            raw_data_obj=raw_data_obj,
+        )
+
+        data_t0 = self._dataset.get(
+            obj_id=obj_id,
+            joints=joints,
+            camera_xyz=camera_xyz,
+            seed=seed1,
+            random_joint_id=joint_ix,
+        )
 
         pos_t0 = data_t0["pos"]
 
@@ -182,20 +202,12 @@ class FlowHistoryDataset(tgd.Dataset):
 
         ###################################################################
 
-        # Randomly select a joint to modify by poking through the guts.
-        renderer: PybulletRenderer = self._dataset.renderers[obj_id]  # type: ignore
         K = (
             0 if not this_sample_open else 1
         )  # If fully closed - then return None history
         # print(K)
 
         d_theta = 0
-        joint_name, joint_type, joint_ix = get_random_joint(
-            obj_id=renderer._render_env.obj_id,
-            client_id=renderer._render_env.client_id,
-            seed=seed2,
-            raw_data_obj=raw_data_obj,
-        )
         if this_sample_open:  # Pick a joint to open
             joint = raw_data_obj.get_joint(joint_name)
 

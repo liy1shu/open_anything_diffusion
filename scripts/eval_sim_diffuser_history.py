@@ -211,73 +211,77 @@ def main(cfg):
     # We'll also load the weights.
     ######################################################################
 
-    trajectory_len = cfg.inference.trajectory_len
-    if "diffuser" in cfg.model.name:
-        if "pn++" in cfg.model.name:
-            in_channels = 3 * cfg.inference.trajectory_len + cfg.model.time_embed_dim
+    # If we still need original diffusion method
+    if "hisdit" not in cfg.model.name:
+        trajectory_len = cfg.inference.trajectory_len
+        if "diffuser" in cfg.model.name:
+            if "pn++" in cfg.model.name:
+                in_channels = (
+                    3 * cfg.inference.trajectory_len + cfg.model.time_embed_dim
+                )
+            else:
+                in_channels = (
+                    3 * cfg.inference.trajectory_len
+                )  # Will add 3 as input channel in diffuser
         else:
-            in_channels = (
-                3 * cfg.inference.trajectory_len
-            )  # Will add 3 as input channel in diffuser
-    else:
-        in_channels = 1 if cfg.inference.mask_input_channel else 0
+            in_channels = 1 if cfg.inference.mask_input_channel else 0
 
-    if "pn++" in cfg.model.name:
-        network = pnp.PN2Dense(
-            in_channels=in_channels,
-            out_channels=3 * trajectory_len,
-            p=pnp.PN2DenseParams(),
-        ).cuda()
-    elif "dgdit" in cfg.model.name:
-        network = DGDiT(
-            in_channels=in_channels,
-            depth=5,
-            hidden_size=128,
-            patch_size=1,
-            num_heads=4,
-            n_points=cfg.dataset.n_points,
-        ).cuda()
-    elif "pndit" in cfg.model.name:
-        network = PN2DiT(
-            in_channels=in_channels,
-            depth=5,
-            hidden_size=128,
-            patch_size=1,
-            num_heads=4,
-            n_points=cfg.dataset.n_points,
-        ).cuda()
-    elif "dit" in cfg.model.name:
-        network = DiT(
-            in_channels=in_channels + 3,
-            depth=5,
-            hidden_size=128,
-            num_heads=4,
-            learn_sigma=True,
-        ).cuda()
+        if "pn++" in cfg.model.name:
+            network = pnp.PN2Dense(
+                in_channels=in_channels,
+                out_channels=3 * trajectory_len,
+                p=pnp.PN2DenseParams(),
+            ).cuda()
+        elif "dgdit" in cfg.model.name:
+            network = DGDiT(
+                in_channels=in_channels,
+                depth=5,
+                hidden_size=128,
+                patch_size=1,
+                num_heads=4,
+                n_points=cfg.dataset.n_points,
+            ).cuda()
+        elif "pndit" in cfg.model.name:
+            network = PN2DiT(
+                in_channels=in_channels,
+                depth=5,
+                hidden_size=128,
+                patch_size=1,
+                num_heads=4,
+                n_points=cfg.dataset.n_points,
+            ).cuda()
+        elif "dit" in cfg.model.name:
+            network = DiT(
+                in_channels=in_channels + 3,
+                depth=5,
+                hidden_size=128,
+                num_heads=4,
+                learn_sigma=True,
+            ).cuda()
 
-    # # Get the checkpoint file. If it's a wandb reference, download.
-    # # Otherwise look to disk.
-    # checkpoint_reference = cfg.checkpoint.reference
-    # if checkpoint_reference.startswith(cfg.wandb.entity):
-    #     # download checkpoint locally (if not already cached)
-    #     artifact_dir = cfg.wandb.artifact_dir
-    #     artifact = run.use_artifact(checkpoint_reference, type="model")
-    #     ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
-    # else:
-    #     ckpt_file = checkpoint_reference
-    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt"
-    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-04-23/05-01-44/checkpoints/epoch=469-step=1038700-val_loss=0.00-weights-only.ckpt"
+        # # Get the checkpoint file. If it's a wandb reference, download.
+        # # Otherwise look to disk.
+        # checkpoint_reference = cfg.checkpoint.reference
+        # if checkpoint_reference.startswith(cfg.wandb.entity):
+        #     # download checkpoint locally (if not already cached)
+        #     artifact_dir = cfg.wandb.artifact_dir
+        #     artifact = run.use_artifact(checkpoint_reference, type="model")
+        #     ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
+        # else:
+        #     ckpt_file = checkpoint_reference
+        # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt"
+        ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-04-23/05-01-44/checkpoints/epoch=469-step=1038700-val_loss=0.00-weights-only.ckpt"
 
-    # # Load the network weights.
-    # ckpt = torch.load(ckpt_file)
-    # network.load_state_dict(
-    #     {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items()}
-    # )
-    model = inference_module_class[cfg.model.name](
-        network, inference_cfg=cfg.inference, model_cfg=cfg.model
-    ).cuda()
-    model.load_from_ckpt(ckpt_file)
-    model.eval()
+        # # Load the network weights.
+        # ckpt = torch.load(ckpt_file)
+        # network.load_state_dict(
+        #     {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items()}
+        # )
+        model = inference_module_class[cfg.model.name](
+            network, inference_cfg=cfg.inference, model_cfg=cfg.model
+        ).cuda()
+        model.load_from_ckpt(ckpt_file)
+        model.eval()
 
     # History model
     network = {
@@ -293,7 +297,8 @@ def main(cfg):
         ).cuda(),
     }
 
-    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-01/10-18-38/checkpoints/epoch=529-step=293090-val_loss=0.00-weights-only.ckpt"
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-01/10-18-38/checkpoints/epoch=529-step=293090-val_loss=0.00-weights-only.ckpt"
+    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-10/12-09-08/checkpoints/epoch=439-step=243320-val_loss=0.00-weights-only.ckpt"
     history_model = FlowTrajectoryDiffuserSimulationModule_HisDiT(
         network, inference_cfg=cfg.inference, model_cfg=cfg.model
     ).cuda()
@@ -325,7 +330,8 @@ def main(cfg):
         print(f"OBJ {obj_id} of {obj_cat}")
         trial_figs, trial_results, sim_trajectory = trial_with_diffuser_history(
             obj_id=obj_id,
-            model=model,
+            # model=model,
+            model=history_model,  # All history model!!!
             history_model=history_model,
             n_step=30,
             gui=False,
