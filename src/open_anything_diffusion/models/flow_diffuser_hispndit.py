@@ -299,7 +299,8 @@ class FlowTrajectoryDiffusionModule_HisPNDiT(L.LightningModule):
             self.cosine_distribution_cache["y"] = []
             self.cosine_distribution_cache["colors"] = []
 
-        dataloader_names = ["val", "train", "unseen"]
+        # dataloader_names = ["val", "train", "unseen"]
+        dataloader_names = ["val", "unseen"]
         name = dataloader_names[dataloader_idx]
         with torch.no_grad():
             f_pred, loss = self.predict(batch, name)
@@ -399,7 +400,7 @@ class FlowTrajectoryDiffusionModule_HisPNDiT(L.LightningModule):
         return {"diffuser_plot": fig, "cosine_distribution_plot": cos_fig}
 
 
-class FlowTrajectoryDiffuserInferenceModule_HisDiT(L.LightningModule):
+class FlowTrajectoryDiffuserInferenceModule_HisPNDiT(L.LightningModule):
     def __init__(self, networks, inference_cfg, model_cfg) -> None:
         super().__init__()
         network = networks["DiT"]
@@ -431,13 +432,18 @@ class FlowTrajectoryDiffuserInferenceModule_HisDiT(L.LightningModule):
         return None
 
     def predict(
-        self, P_world, history_pcd, history_flow
+        self, P_world, history_pcd=None, history_flow=None
     ) -> torch.Tensor:  # From pure point cloud
+        K = self.history_len
+        if history_pcd is None:
+            history_pcd = np.zeros_like(P_world)
+            history_flow = np.zeros_like(P_world)
+            K = 0
         data = tgd.Data(
             pos=torch.from_numpy(P_world).float().cuda(),
             history=torch.from_numpy(history_pcd).float().cuda(),
             flow_history=torch.from_numpy(history_flow).float().cuda(),
-            K=self.history_len,
+            K=K,
             lengths=self.sample_size
             # mask=torch.ones(P_world.shape[0]).float(),
         )
@@ -616,10 +622,10 @@ class FlowTrajectoryDiffuserInferenceModule_HisDiT(L.LightningModule):
         return metric_dict, cos_dist.tolist()  # dataloader * trial_times
 
 
-class FlowTrajectoryDiffuserSimulationModule_HisDiT(L.LightningModule):
+class FlowTrajectoryDiffuserSimulationModule_HisPNDiT(L.LightningModule):
     def __init__(self, networks, inference_cfg, model_cfg) -> None:
         super().__init__()
-        self.model = FlowTrajectoryDiffuserInferenceModule_HisDiT(
+        self.model = FlowTrajectoryDiffuserInferenceModule_HisPNDiT(
             networks, inference_cfg, model_cfg
         )
         self.history_len = self.model.history_len
@@ -640,7 +646,7 @@ class FlowTrajectoryDiffuserSimulationModule_HisDiT(L.LightningModule):
             pos=torch.from_numpy(P_world).float().cuda(),
             history=torch.from_numpy(history_pcd).float().cuda(),
             flow_history=torch.from_numpy(history_flow).float().cuda(),
-            K=self.history_len,
+            K=K,
             lengths=self.sample_size
             # mask=torch.ones(P_world.shape[0]).float(),
         )

@@ -11,7 +11,7 @@ import numpy as np
 import omegaconf
 import pandas as pd
 import plotly.graph_objects as go
-import rpad.pyg.nets.pointnet2 as pnp
+import rpad.pyg.nets.pointnet2 as pnp_orig
 import torch
 import tqdm
 import wandb
@@ -35,6 +35,9 @@ from open_anything_diffusion.models.flow_diffuser_pndit import (
 from open_anything_diffusion.models.flow_trajectory_diffuser import (
     FlowTrajectoryDiffuserSimulationModule_PN2,
 )
+from open_anything_diffusion.models.flow_trajectory_predictor import (
+    FlowSimulationInferenceModule,
+)
 from open_anything_diffusion.models.modules.dit_models import (
     DGDiT,
     DiT,
@@ -42,7 +45,7 @@ from open_anything_diffusion.models.modules.dit_models import (
     PN2HisDiT,
 )
 from open_anything_diffusion.models.modules.history_encoder import HistoryEncoder
-from open_anything_diffusion.simulations.simulation import trial_with_diffuser_history
+from open_anything_diffusion.simulations.simulation import trial_with_switch_models
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
 
 print(PROJECT_ROOT)
@@ -82,14 +85,137 @@ def load_obj_and_link(id_to_cat):
 
 
 inference_module_class = {
+    "pn++": FlowSimulationInferenceModule,
     "diffuser_pn++": FlowTrajectoryDiffuserSimulationModule_PN2,
     "diffuser_dgdit": FlowTrajectoryDiffuserSimulationModule_DGDiT,
     "diffuser_dit": FlowTrajectoryDiffuserSimulationModule_DiT,
     "diffuser_pndit": FlowTrajectoryDiffuserSimulationModule_PNDiT,
 }
 
+ckpts_dict = {
+    "pn++": "/home/yishu/open_anything_diffusion/logs/train_trajectory_pn++/2024-03-30/08-16-05/checkpoints/epoch=88-step=98345-val_loss=0.00-weights-only.ckpt",
+    "diffuser_dit": "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt",
+    "diffuser_pndit": "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-04-23/05-01-44/checkpoints/epoch=469-step=1038700-val_loss=0.00-weights-only.ckpt",
+    "diffuser_hispndit": "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hispndit/2024-05-19/10-49-49/checkpoints/epoch=339-step=281860-val_loss=0.00-weights-only.ckpt",
+    "diffuser_hisdit": "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-10/12-09-08/checkpoints/epoch=439-step=243320-val_loss=0.00-weights-only.ckpt",
+}
 
-@hydra.main(config_path="../configs", config_name="eval_sim", version_base="1.3")
+
+def create_model(inference_cfg, model_cfg, dataset_cfg, run, model_name):
+    trajectory_len = inference_cfg.trajectory_len
+    if "diffuser" in model_name:
+        if "pn++" in model_name:
+            in_channels = 3 * inference_cfg.trajectory_len + model_cfg.time_embed_dim
+        else:
+            in_channels = (
+                3 * inference_cfg.trajectory_len
+            )  # Will add 3 as input channel in diffuser
+    else:
+        in_channels = 1 if inference_cfg.mask_input_channel else 0
+
+    if "pn++" in model_name:
+        network = pnp_orig.PN2Dense(
+            in_channels=in_channels,
+            out_channels=3 * trajectory_len,
+            p=pnp_orig.PN2DenseParams(),
+        ).cuda()
+    elif "dgdit" in model_name:
+        network = DGDiT(
+            in_channels=in_channels,
+            depth=5,
+            hidden_size=128,
+            patch_size=1,
+            num_heads=4,
+            n_points=dataset_cfg.n_points,
+        ).cuda()
+
+    if "hispndit" in model_cfg.name:
+        network = {
+            "DiT": PN2HisDiT(
+                history_embed_dim=model_cfg.history_dim,
+                in_channels=3,
+                depth=5,
+                hidden_size=128,
+                num_heads=4,
+                learn_sigma=True,
+            ).cuda(),
+            "History": HistoryEncoder(
+                history_dim=model_cfg.history_dim,
+                history_len=model_cfg.history_len,
+                batch_norm=model_cfg.batch_norm,
+                transformer=False,
+                repeat_dim=False,
+            ).cuda(),
+        }
+        model = FlowTrajectoryDiffuserSimulationModule_HisPNDiT(
+            network, inference_cfg=inference_cfg, model_cfg=model_cfg
+        ).cuda()
+    elif "hisdit" in model_cfg.name:
+        network = {
+            "DiT": DiT(
+                in_channels=3 + 3 + 128,
+                depth=5,
+                hidden_size=128,
+                num_heads=4,
+                learn_sigma=True,
+            ).cuda(),
+            "History": HistoryEncoder(
+                history_dim=128, history_len=1, batch_norm=False
+            ).cuda(),
+        }
+        model = FlowTrajectoryDiffuserSimulationModule_HisDiT(
+            network, inference_cfg=inference_cfg, model_cfg=model_cfg
+        ).cuda()
+    elif "pndit" in model_name:
+        network = PN2DiT(
+            in_channels=in_channels,
+            depth=5,
+            hidden_size=128,
+            patch_size=1,
+            num_heads=4,
+            n_points=dataset_cfg.n_points,
+        ).cuda()
+    elif "dit" in model_name:
+        network = DiT(
+            in_channels=in_channels + 3,
+            depth=5,
+            hidden_size=128,
+            num_heads=4,
+            learn_sigma=True,
+        ).cuda()
+
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt"
+    if model_name in ckpts_dict.keys():
+        ckpt_file = ckpts_dict[model_name]
+    else:
+        assert (
+            True
+        ), "No ckpt provided, currently doesn't support downloading from wandb"
+        # # Get the checkpoint file. If it's a wandb reference, download.
+        # # Otherwise look to disk.
+        # checkpoint_reference = cfg.checkpoint.reference
+        # if checkpoint_reference.startswith(cfg.wandb.entity):
+        #     # download checkpoint locally (if not already cached)
+        #     artifact_dir = cfg.wandb.artifact_dir
+        #     artifact = run.use_artifact(checkpoint_reference, type="model")
+        #     ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
+        # else:
+        #     ckpt_file = checkpoint_reference
+
+    # # Load the network weights.
+    # ckpt = torch.load(ckpt_file)
+    # network.load_state_dict(
+    #     {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items()}
+    # )
+    model = inference_module_class[model_cfg.name](
+        network, inference_cfg=inference_cfg, model_cfg=model_cfg
+    ).cuda()
+    model.load_from_ckpt(ckpt_file)
+    model.eval()
+    return model
+
+
+@hydra.main(config_path="../configs", config_name="eval_sim_switch", version_base="1.3")
 def main(cfg):
     ######################################################################
     # Torch settings.
@@ -219,122 +345,24 @@ def main(cfg):
     # We'll also load the weights.
     ######################################################################
 
-    # If we still need original diffusion method
-    if "his" not in cfg.model.name:
-        trajectory_len = cfg.inference.trajectory_len
-        if "diffuser" in cfg.model.name:
-            if "pn++" in cfg.model.name:
-                in_channels = (
-                    3 * cfg.inference.trajectory_len + cfg.model.time_embed_dim
-                )
-            else:
-                in_channels = (
-                    3 * cfg.inference.trajectory_len
-                )  # Will add 3 as input channel in diffuser
-        else:
-            in_channels = 1 if cfg.inference.mask_input_channel else 0
+    # Create the first model
+    if cfg.model.name is not None:
+        model = create_model(cfg.inference, cfg.model, cfg.dataset, run, cfg.model.name)
+        history_for_model = "his" in cfg.model.name
 
-        if "pn++" in cfg.model.name:
-            network = pnp.PN2Dense(
-                in_channels=in_channels,
-                out_channels=3 * trajectory_len,
-                p=pnp.PN2DenseParams(),
-            ).cuda()
-        elif "dgdit" in cfg.model.name:
-            network = DGDiT(
-                in_channels=in_channels,
-                depth=5,
-                hidden_size=128,
-                patch_size=1,
-                num_heads=4,
-                n_points=cfg.dataset.n_points,
-            ).cuda()
-        elif "pndit" in cfg.model.name:
-            network = PN2DiT(
-                in_channels=in_channels,
-                depth=5,
-                hidden_size=128,
-                patch_size=1,
-                num_heads=4,
-                n_points=cfg.dataset.n_points,
-            ).cuda()
-        elif "dit" in cfg.model.name:
-            network = DiT(
-                in_channels=in_channels + 3,
-                depth=5,
-                hidden_size=128,
-                num_heads=4,
-                learn_sigma=True,
-            ).cuda()
-
-        # # Get the checkpoint file. If it's a wandb reference, download.
-        # # Otherwise look to disk.
-        # checkpoint_reference = cfg.checkpoint.reference
-        # if checkpoint_reference.startswith(cfg.wandb.entity):
-        #     # download checkpoint locally (if not already cached)
-        #     artifact_dir = cfg.wandb.artifact_dir
-        #     artifact = run.use_artifact(checkpoint_reference, type="model")
-        #     ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
-        # else:
-        #     ckpt_file = checkpoint_reference
-        # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt"
-        ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-04-23/05-01-44/checkpoints/epoch=469-step=1038700-val_loss=0.00-weights-only.ckpt"
-
-        # # Load the network weights.
-        # ckpt = torch.load(ckpt_file)
-        # network.load_state_dict(
-        #     {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items()}
-        # )
-        model = inference_module_class[cfg.model.name](
-            network, inference_cfg=cfg.inference, model_cfg=cfg.model
-        ).cuda()
-        model.load_from_ckpt(ckpt_file)
-        model.eval()
-
-    # History model
-    if "hispndit" in cfg.model.name:
-        network = {
-            "DiT": PN2HisDiT(
-                history_embed_dim=cfg.model.history_dim,
-                in_channels=3,
-                depth=5,
-                hidden_size=128,
-                num_heads=4,
-                learn_sigma=True,
-            ).cuda(),
-            "History": HistoryEncoder(
-                history_dim=cfg.model.history_dim,
-                history_len=cfg.model.history_len,
-                batch_norm=cfg.model.batch_norm,
-                transformer=False,
-                repeat_dim=False,
-            ).cuda(),
-        }
-        history_model = FlowTrajectoryDiffuserSimulationModule_HisPNDiT(
-            network, inference_cfg=cfg.inference, model_cfg=cfg.model
-        ).cuda()
-        # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hispndit/2024-05-17/14-29-19/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt"
-        ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hispndit/2024-05-19/10-49-49/checkpoints/epoch=339-step=281860-val_loss=0.00-weights-only.ckpt"
-    elif "hisdit" in cfg.model.name:
-        network = {
-            "DiT": DiT(
-                in_channels=3 + 3 + 128,
-                depth=5,
-                hidden_size=128,
-                num_heads=4,
-                learn_sigma=True,
-            ).cuda(),
-            "History": HistoryEncoder(
-                history_dim=128, history_len=1, batch_norm=False
-            ).cuda(),
-        }
-        history_model = FlowTrajectoryDiffuserSimulationModule_HisDiT(
-            network, inference_cfg=cfg.inference, model_cfg=cfg.model
-        ).cuda()
-        ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-10/12-09-08/checkpoints/epoch=439-step=243320-val_loss=0.00-weights-only.ckpt"
-
-    history_model.load_from_ckpt(ckpt_file)
-    history_model.eval()
+    # Create the second model
+    if cfg.switch_model.name is not None:
+        switch_model = create_model(
+            cfg.switch_inference,
+            cfg.switch_model,
+            cfg.dataset,
+            run,
+            cfg.switch_model.name,
+        )
+        history_for_switch_model = "his" in cfg.switch_model.name
+    else:
+        switch_model = model
+        history_for_switch_model = "his" in cfg.model.name
 
     # Simulation and results.
     print("Simulating")
@@ -359,11 +387,11 @@ def main(cfg):
         if len(available_links) == 0:
             continue
         print(f"OBJ {obj_id} of {obj_cat}")
-        trial_figs, trial_results, sim_trajectory = trial_with_diffuser_history(
+        trial_figs, trial_results, sim_trajectory = trial_with_switch_models(
             obj_id=obj_id,
-            # model=model,
-            model=history_model,  # All history model!!!
-            history_model=history_model,
+            model=model,
+            switch_model=switch_model,
+            history_for_models=[history_for_model, history_for_switch_model],
             n_step=30,
             gui=False,
             website=cfg.website,

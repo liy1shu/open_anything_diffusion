@@ -140,12 +140,24 @@ class FlowHistoryDataset(tgd.Dataset):
         if self.special_req is None:
             joints = "random" if self.randomize_joints else None
         elif self.special_req == "half-half":
-            this_sample_open = random.randint(0, 100) < 50
+            this_sample_open = random.randint(0, 99) < 50  # 50 open + 50 closed
             # print(this_sample_open)
             if this_sample_open:  # Open this sample - with history
                 joints = "random"
             else:  # Close this sample - without history
                 joints = "fully-closed"
+        elif self.special_req == "half-half-01":
+            this_sample_open = (
+                random.randint(0, 149) >= 50
+            )  # 50 open + 50 open + 50 closed
+            # print(this_sample_open)
+            if this_sample_open:  # Open this sample - with history
+                has_history = random.randint(0, 99) < 50
+                joints = "random"
+            else:  # Close this sample - without history
+                has_history = False
+                joints = "fully-closed"
+            this_sample_open = has_history
         elif self.special_req == "fully-closed":
             this_sample_open = False
             joints = "fully-closed"

@@ -18,6 +18,7 @@ from open_anything_diffusion.simulations.suction import (  # compute_flow,
     PMSuctionSim,
     run_trial,
     run_trial_with_history,
+    run_trial_with_switch_models,
 )
 
 
@@ -399,6 +400,86 @@ def trial_with_diffuser_history(
             joint_name,
             model,
             history_model,
+            gt_model=None,  # Don't need mask
+            n_steps=n_step,
+            save_name=f"{obj_id}_{joint_name}",
+            website=website,
+            gui=gui,
+        )
+        sim_trajectories.append(sim_trajectory)
+        if result.assertion is False:
+            with open(
+                "/home/yishu/open_anything_diffusion/logs/assertion_failure.txt", "a"
+            ) as f:
+                f.write(f"Object: {obj_id}; Joint: {joint_name}\n")
+            continue
+        if result.contact is False:
+            continue
+        figs[joint_name] = fig
+        results.append(result)
+
+    return figs, results, sim_trajectories
+
+
+def trial_with_switch_models(
+    obj_id="41083",
+    model=None,
+    switch_model=None,
+    history_for_models=[False, False],
+    n_step=30,
+    gui=False,
+    all_joint=False,
+    website=False,
+    available_joints=None,
+):
+    # pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
+    pm_dir = os.path.expanduser("~/datasets/partnet-mobility/convex")
+    # env = PMSuctionSim(obj_id, pm_dir, gui=gui)
+    raw_data = PMObject(os.path.join(pm_dir, obj_id))
+
+    if available_joints is None:  # Use the passed in joint sets
+        available_joints = raw_data.semantics.by_type(
+            "hinge"
+        ) + raw_data.semantics.by_type("slider")
+        available_joints = [joint.name for joint in available_joints]
+
+    print("available_joints:", available_joints)
+    if all_joint:  # Need to traverse all the joints
+        picked_joints = available_joints
+    else:
+        picked_joints = [available_joints[np.random.randint(0, len(available_joints))]]
+
+    sim_trajectories = []
+    results = []
+    figs = {}
+    for joint_name in picked_joints:
+        # t0 = time.perf_counter()
+        # print(f"opening {joint.name}, {joint.label}")
+        print(f"opening {joint_name}")
+        env = PMSuctionSim(obj_id, pm_dir, gui=gui)
+
+        # Close all joints:
+        for link_to_restore in [
+            joint.name
+            for joint in raw_data.semantics.by_type("hinge")
+            + raw_data.semantics.by_type("slider")
+        ]:
+            info = p.getJointInfo(
+                env.render_env.obj_id,
+                env.render_env.link_name_to_index[link_to_restore],
+                env.render_env.client_id,
+            )
+            init_angle, target_angle = info[8], info[9]
+            env.set_joint_state(link_to_restore, init_angle)
+
+        # gt_model = GTFlowModel(raw_data, env)
+        fig, result, sim_trajectory = run_trial_with_switch_models(
+            env,
+            raw_data,
+            joint_name,
+            model,
+            switch_model,
+            history_for_models,
             gt_model=None,  # Don't need mask
             n_steps=n_step,
             save_name=f"{obj_id}_{joint_name}",

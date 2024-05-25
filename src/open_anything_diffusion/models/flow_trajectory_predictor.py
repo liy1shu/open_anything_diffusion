@@ -269,6 +269,15 @@ class FlowSimulationInferenceModule(L.LightningModule):
         self.network = network
         self.mask_input_channel = mask_input_channel
 
+    def __init__(self, network, inference_cfg, model_cfg) -> None:
+        super().__init__()
+        self.network = network
+        self.mask_input_channel = inference_cfg.mask_input_channel
+
+    def load_from_ckpt(self, ckpt_file):
+        ckpt = torch.load(ckpt_file)
+        self.load_state_dict(ckpt["state_dict"])
+
     def forward(self, data) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
         rgb, depth, seg, P_cam, P_world, pc_seg, segmap = data
@@ -285,4 +294,4 @@ class FlowSimulationInferenceModule(L.LightningModule):
         with torch.no_grad():
             trajectory = self.network(batch)
         # print("Trajectory prediction shape:", trajectory.shape)
-        return trajectory.reshape(trajectory.shape[0], -1, 3)
+        return trajectory.reshape(trajectory.shape[0], -1, 3).cpu()

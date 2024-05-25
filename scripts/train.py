@@ -163,7 +163,8 @@ def main(cfg):
     #     "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
     #     "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
     # }
-    special_req = "half-half"  # "fully-closed"
+    # special_req = "half-half"  # "fully-closed"
+    special_req = "half-half-01"
     # special_req = None
 
     # Create flow dataset
@@ -176,6 +177,7 @@ def main(cfg):
         history="his" in cfg.model.name,
         trajectory_len=trajectory_len,  # Only used when training trajectory model
         special_req=special_req,  # special_req="fully-closed"
+        n_repeat=150 if special_req == "half-half-01" else 100,
         # # TODO: only for toy training!!!!!
         toy_dataset=toy_dataset,
     )
@@ -287,6 +289,9 @@ def main(cfg):
                 depth=5,
                 hidden_size=128,
                 num_heads=4,
+                # depth=8,
+                # hidden_size=256,
+                # num_heads=4,
                 learn_sigma=True,
             ).cuda(),
             "History": history_network_class[cfg.model.history_model](
@@ -402,7 +407,7 @@ def main(cfg):
             ModelCheckpoint(
                 dirpath=cfg.lightning.checkpoint_dir,
                 filename="{epoch}-{step}-{val_loss:.2f}-weights-only",
-                monitor="val_wta/flow_loss" if cfg.training.wta else "val/flow_loss",
+                monitor="val_wta/rmse" if cfg.training.wta else "val/rmse",
                 mode="min",
                 save_weights_only=True,
             ),
@@ -430,7 +435,8 @@ def main(cfg):
     ######################################################################
 
     # trainer.fit(model, train_loader, [val_loader, train_val_loader, unseen_loader], ckpt_path='/home/yishu/open_anything_diffusion/logs/train_trajectory/2023-09-11/19-01-57/checkpoints/last.ckpt')
-    trainer.fit(model, train_loader, [val_loader, train_val_loader, unseen_loader])
+    # trainer.fit(model, train_loader, [val_loader, train_val_loader, unseen_loader])
+    trainer.fit(model, train_loader, [val_loader, unseen_loader])
 
 
 if __name__ == "__main__":
