@@ -22,6 +22,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         history=False,  ## With / without history
         randomize_camera: bool = True,
         trajectory_len: int = 1,
+        history_len: int = 10,
         seed: int = 42,
         special_req: str = None,
         toy_dataset: dict = None,
@@ -36,6 +37,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 True,
                 randomize_camera,
                 trajectory_len,
+                history_len,
                 special_req,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             )
@@ -49,6 +51,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 else toy_dataset["train-train"],
                 randomize_camera=randomize_camera,
                 trajectory_len=trajectory_len,
+                history_len=history_len,
                 special_req=special_req,
             ),
             data_keys=rpd.UMPNET_TRAIN_TRAIN_OBJ_IDS
@@ -59,6 +62,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 True,
                 randomize_camera,
                 trajectory_len,
+                history_len,
                 special_req,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             ),
@@ -78,6 +82,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 else toy_dataset["train-train"],
                 randomize_camera=randomize_camera,
                 trajectory_len=trajectory_len,
+                history_len=history_len,
                 special_req=special_req,
             ),
             data_keys=rpd.UMPNET_TRAIN_TRAIN_OBJ_IDS
@@ -106,6 +111,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 else toy_dataset["train-test"],
                 randomize_camera=randomize_camera,
                 trajectory_len=trajectory_len,
+                history_len=history_len,
                 special_req=special_req,
             ),
             data_keys=rpd.UMPNET_TRAIN_TEST_OBJ_IDS
@@ -116,6 +122,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 True,
                 randomize_camera,
                 trajectory_len,
+                history_len,
                 special_req,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             ),
@@ -132,6 +139,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 split="umpnet-test" if toy_dataset is None else toy_dataset["test"],
                 randomize_camera=randomize_camera,
                 trajectory_len=trajectory_len,
+                history_len=history_len,
                 special_req=special_req,
             ),
             data_keys=rpd.UMPNET_TEST_OBJ_IDS
@@ -142,6 +150,7 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 True,
                 randomize_camera,
                 trajectory_len,
+                history_len,
                 special_req,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             ),

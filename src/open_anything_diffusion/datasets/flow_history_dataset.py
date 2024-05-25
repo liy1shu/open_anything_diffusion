@@ -89,6 +89,7 @@ class FlowHistoryDataset(tgd.Dataset):
         randomize_joints: bool = True,
         randomize_camera: bool = True,
         trajectory_len: int = 1,
+        history_len: int = 1,
         special_req: str = None,
         n_points: Optional[int] = 1200,
         seed: int = 42,
@@ -101,6 +102,7 @@ class FlowHistoryDataset(tgd.Dataset):
         self.randomize_joints = randomize_joints
         self.randomize_camera = randomize_camera
         self.trajectory_len = trajectory_len
+        self.history_len = history_len
         self.special_req = special_req
         self.n_points = n_points
 
@@ -115,23 +117,25 @@ class FlowHistoryDataset(tgd.Dataset):
         randomize_joints,
         randomize_camera,
         trajectory_len,
+        history_len,
         special_req=None,
         toy_dataset_id=None,
     ):
         joint_chunk = "rj" if randomize_joints else "sj"
         camera_chunk = "rc" if randomize_camera else "sc"
+        # breakpoint()
         if special_req is None and toy_dataset_id is None:
-            return f"processed_history_{trajectory_len}_{joint_chunk}_{camera_chunk}_random"
+            return f"processed_history_{trajectory_len}_{history_len}_{joint_chunk}_{camera_chunk}_random"
         elif special_req is not None and toy_dataset_id is None:
             # fully_closed
             # half_half
-            return f"processed_history_{trajectory_len}_{joint_chunk}_{camera_chunk}_{special_req}"
+            return f"processed_history_{trajectory_len}_{history_len}_{joint_chunk}_{camera_chunk}_{special_req}"
         elif special_req is None and toy_dataset_id is not None:
             # fully_closed
             # half_half
-            return f"processed_history_{trajectory_len}_{joint_chunk}_{camera_chunk}_toy{toy_dataset_id}_random"
+            return f"processed_history_{trajectory_len}_{history_len}_{joint_chunk}_{camera_chunk}_toy{toy_dataset_id}_random"
         else:
-            return f"processed_history_{trajectory_len}_{joint_chunk}_{camera_chunk}_{special_req}_toy{toy_dataset_id}"
+            return f"processed_history_{trajectory_len}_{history_len}_{joint_chunk}_{camera_chunk}_{special_req}_toy{toy_dataset_id}"
 
     def get_data(self, obj_id: str, seed=None) -> FlowHistory:
         # Initial randomization parameters.
@@ -209,11 +213,17 @@ class FlowHistoryDataset(tgd.Dataset):
 
         ###################################################################
 
-        K = (
-            0 if not this_sample_open else 1
-        )  # If fully closed - then return None history
-        # print(K)
-
+        
+        if self.history_len > 1:
+            K = random.randint(0, self.history_len)
+            # print(K)
+            # K = 0
+        else:
+            K = (
+                0 if not this_sample_open else 1
+            )  # If fully closed - then return None history
+            # print(K)
+        # print("K", K)
         d_theta = 0
         if this_sample_open:  # Pick a joint to open
             joint = raw_data_obj.get_joint(joint_name)

@@ -1,64 +1,57 @@
 # Define the history encoder
-import math
-
 import lightning as L
 import torch
 import torch.nn as nn
-from torch.nn import init
 import torch_geometric.data as tgd
-from open_anything_diffusion.nets.lstm import LSTMAggregator
 
 
 # Yishu's old old old version - history : grasp point & direction & outcome
-# class PDOHistoryEncoder(nn.Module):
-#     def __init__(
-#         self,
-#         input_dim=7,
-#         output_dim=32,
-#         d_model=128,
-#         nhead=4,
-#         num_layers=2,
-#         dim_feedforward=256,
-#         batch_norm=False,
-#     ):
-#         super(PDOHistoryEncoder, self).__init__()
-#         self.input_dim = input_dim
-#         self.d_model = d_model
-#         self.transformer = nn.TransformerEncoder(
-#             nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward), num_layers
-#         )
-#         # self.lstm_aggregator = LSTMAggregator(input_size=input_dim, 
-#         #                                       hidden_size=d_model)                                      
-      
-#         self.input_linear = nn.Linear(input_dim, d_model)
-#         self.output_linear = nn.Linear(d_model, output_dim)
-#         self.activation = nn.Sigmoid()
+class PDOHistoryEncoder(nn.Module):
+    def __init__(
+        self,
+        input_dim=7,
+        output_dim=32,
+        d_model=128,
+        nhead=4,
+        num_layers=2,
+        dim_feedforward=256,
+        batch_norm=False,
+    ):
+        super(PDOHistoryEncoder, self).__init__()
+        self.input_dim = input_dim
+        self.d_model = d_model
+        self.transformer = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward), num_layers
+        )
+        self.input_linear = nn.Linear(input_dim, d_model)
+        self.output_linear = nn.Linear(d_model, output_dim)
+        self.activation = nn.Sigmoid()
 
-#     def forward(self, raw_src):
-#         # raw_src shape: [batch_size, seq_len, input_dim]
-#         src = raw_src.transpose(0, 1)
-#         # src shape: [seq_len, batch_size, input_dim]
-#         src = self.input_linear(src)
-#         # Transformer expects input of shape: [seq_len, batch_size, d_model]
-#         lstm_output = self.lstm_aggregator(src)
-#         # Pooling over the time dimension to get fixed size output
-#         pooled_output = torch.mean(lstm_output, dim=0)
-#         # Final output linear layer to get desired output dimension
-#         output = self.activation(self.output_linear(pooled_output))
-#         return output
+    def forward(self, raw_src):
+        # raw_src shape: [batch_size, seq_len, input_dim]
+        src = raw_src.transpose(0, 1)
+        # src shape: [seq_len, batch_size, input_dim]
+        src = self.input_linear(src)
+        # Transformer expects input of shape: [seq_len, batch_size, d_model]
+        transformer_output = self.transformer(src)
+        # Pooling over the time dimension to get fixed size output
+        pooled_output = torch.mean(transformer_output, dim=0)
+        # Final output linear layer to get desired output dimension
+        output = self.activation(self.output_linear(pooled_output))
+        return output
 
 
-def get_history_batch(batch, device):
+def get_history_batch(batch):
     """Extracts a single batch of the history data for encoding,
     because each history element is processed separately."""
     has_history_ids = []
     no_history_ids = []
     history_datas = []
     for id, data in enumerate(batch.to_data_list()):
-        # if data.K == 0:  # No history
-        #     no_history_ids.append(id)
-        #     continue
-        # has_history_ids.append(id)
+        if data.K == 0:  # No history
+            no_history_ids.append(id)
+            continue
+        has_history_ids.append(id)
         history_data = []
         # Get start/end positions based on lengths.
 
@@ -81,21 +74,17 @@ def get_history_batch(batch, device):
             )
 
         history_datas.extend(history_data)
-    # if len(history_datas) == 0:
-    #     return no_history_ids, has_history_ids, None  # No has_history batch
-    # return no_history_ids, has_history_ids, tgd.Batch.from_data_list(history_datas)
-
-    return tgd.Batch.from_data_list(history_datas).to(device) if len(history_datas) > 0 else []
+    if len(history_datas) == 0:
+        return no_history_ids, has_history_ids, None  # No has_history batch
+    return no_history_ids, has_history_ids, tgd.Batch.from_data_list(history_datas)
 
 
 def history_latents_to_nested_list(batch, history_latents):
     """Converting history latents from stacked form to nested list"""
-    # breakpoint()
     datas = batch.to_data_list()
-    history_lengths = [0] + [data.K.item() for data in datas]
-    # history_lengths = [0] + [1 for data in datas]
+    # history_lengths = [0] + [data.K.item() for data in datas]
+    history_lengths = [0] + [1 for data in datas]
     ixs = torch.tensor(history_lengths).cumsum(0).tolist()
-
     post_encoder_latents = []
     for i, data in enumerate(datas):
         post_encoder_latents.append(history_latents[ixs[i] : ixs[i + 1]])
@@ -129,54 +118,52 @@ class HistoryEncoder(L.LightningModule):
         )
         self.repeat_dim = repeat_dim
         self.transformer = transformer
-
-        # Start token for no history
-        self.start_token = nn.Parameter(torch.empty((history_dim,)).float(), requires_grad=True)
-        bound = 1/math.sqrt(history_dim)
-        init.uniform_(self.start_token, -bound, bound)
-
         if self.transformer:
-            self.transformer = LSTMAggregator(input_size=history_dim, 
-                                              hidden_size=history_dim)                                      
-      
-            #nn.Transformer(d_model=history_dim)
+            self.transformer = nn.Transformer(d_model=history_dim)
 
     def forward(self, batch):
+        # point_cnts = batch.lengths[0]
 
-        history_batch = get_history_batch(batch, self.device)
+        history_embeds = torch.zeros(len(batch.lengths), self.history_dim).to(
+            self.device
+        )  # Also add the no history batch
+        no_history_ids, has_history_ids, history_batch = get_history_batch(batch)
+        # print("bsz = ", len(batch.lengths))
+        if len(has_history_ids) != 0:  # Has history samples
+            history_batch = history_batch.to(self.device)
+            has_history_embeds = self.prev_flow_encoder(history_batch)
+            history_embeds[has_history_ids] += has_history_embeds
+        if len(no_history_ids) != 0:  # Has no history samples
+            history_embeds[no_history_ids] += self.no_history_embedding
 
-        if len(history_batch) > 0:
-            history_embeds = self.prev_flow_encoder(history_batch)
-        else:
-            history_embeds = torch.empty((0,self.history_dim))
-    
         if self.transformer:
             history_nested_list = history_latents_to_nested_list(batch, history_embeds)
-            history_nested_list = [torch.cat([t.to(self.device), self.start_token[None]], axis=0) for t in history_nested_list]
-
             src_padded = nn.utils.rnn.pad_sequence(
                 history_nested_list, batch_first=False, padding_value=0
-            ) # MAX_LEN x B x D
-            
+            )
+            # Create a mask for the padded sequences.
+            src_mask = (src_padded == 0.0).all(dim=-1)
+
+            # This is our query vector. It has shape [S, N, E], where S is the sequence length, N is the batch size, and E is the embedding size.
+            tgt = torch.ones(1, batch.num_graphs, self.history_dim).to(self.device)
+
             # The transformer also expects the input to be of type float.
-            # src_padded = src_padded.float()
-          
-            embeddings = self.transformer(src_padded) 
-            # embeddings = out.permute(1, 0, 2).squeeze(1)  # history step = 1?? [batch x K x history_dim]
+            src_padded = src_padded.float()
+            tgt = tgt.float()
+            # Pass the input through the transformer, with mask and tgt.
+            out = self.transformer(
+                src_padded, tgt, src_key_padding_mask=src_mask.transpose(1, 0)
+            )
+            breakpoint()
+            embeddings = out.permute(1, 0, 2).squeeze(1)  # history step = 1
         else:
             embeddings = history_embeds
 
-        # breakpoint()
-        # embeddings: MAX_LEN x B x D
-
-        # We may want to put this back into a list.
-
         if self.repeat_dim == True:  # To point-wise features to concat to DiT
-            # breakpoint()
-            embeddings = embeddings.unsqueeze(2).repeat(1, 1, self.point_cnts, 1)
+            embeddings = embeddings.unsqueeze(1).repeat(1, self.point_cnts, 1)
         else:
-            embeddings = embeddings.unsqueeze(2)
-        return embeddings  #
+            embeddings = embeddings.unsqueeze(1)
+        return embeddings
 
 
 if __name__ == "__main__":

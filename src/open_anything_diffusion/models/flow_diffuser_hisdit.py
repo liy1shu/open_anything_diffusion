@@ -20,6 +20,47 @@ from open_anything_diffusion.metrics.trajectory import (
 )
 from open_anything_diffusion.models.dit_utils import create_diffusion
 
+def process_batch(batch):
+    '''
+    Iterating through the entire trajectory for each data in the dataset
+    Generating sub-lengths of history dataset 
+    '''
+    new_batch = []
+
+    for i, data in enumerate(batch.to_data_list()):
+        for k in range(data.K): 
+            start_ix = data.lengths[:k].sum()
+            end_ix = start_ix + data.lengths[k]
+            d = tgd.Data(
+                    id=data.id,
+                    num_points=data.num_points,
+                    pos=data.history[start_ix:end_ix],
+                    delta=data.flow_history[start_ix:end_ix].unsqueeze(1).float(),
+                    mask=data.mask,
+                    flow_history=data.flow_history[0:start_ix], 
+                    history=data.history[0:start_ix], 
+                    K=torch.tensor([k]).cuda(), # length of history 
+                    lengths=data.lengths[:k],
+                    timesteps=batch.timesteps[i],
+                )
+            new_batch.append(d)
+        
+        # original data
+        new_data = tgd.Data(
+                    id=data.id,
+                    num_points=data.num_points,
+                    pos=data.pos,
+                    delta=data.delta,
+                    mask=data.mask,
+                    flow_history=data.flow_history, 
+                    history=data.history, 
+                    K=data.K,
+                    lengths=data.lengths,
+                    timesteps=batch.timesteps[i],
+                )
+        
+        new_batch.append(new_data) # original data
+    return tgd.Batch.from_data_list(new_batch)
 
 # Flow predictor with DiT
 class FlowTrajectoryDiffusionModule_HisDiT(L.LightningModule):
@@ -54,30 +95,67 @@ class FlowTrajectoryDiffusionModule_HisDiT(L.LightningModule):
         )
 
         self.cosine_distribution_cache = {"x": [], "y": [], "colors": []}
+        self.supervise_intermediate_preds = training_cfg.supervise_intermediate_preds
+
 
     def forward(self, batch: tgd.Batch, mode):
-        x = (
-            batch.delta.reshape(-1, self.sample_size, 3 * self.traj_len)
-            .permute(0, 2, 1)
-            .float()
-            .cuda()
-        )  # Ground truth, for loss calculation
-        history_embed = self.history_encoder(batch).permute(
-            0, 2, 1
-        )  # History embedding
-        pos = torch.concat(
-            [
-                batch.pos.reshape(-1, self.sample_size, 3 * self.traj_len)
-                .permute(0, 2, 1)
-                .float()
-                .cuda(),
-                history_embed,  # Concat history embedding
-            ],
-            dim=1,
-        )
+        # process batch
+        new_batch = batch
+        # new_batch = process_batch(batch)
+
+        history_embed_full = self.history_encoder(new_batch)
+
+        # Get the pc and flow target for the most recent step.
+        curr_flow_target = new_batch.delta.reshape(-1, self.sample_size, 3 * self.traj_len).permute(0, 2, 1).float().cuda()
+        curr_pos = new_batch.pos.reshape(-1, self.sample_size, 3 * self.traj_len).permute(0, 2, 1).float().cuda()
+
+        if self.supervise_intermediate_preds:
+            # For each history, only get the first K+1 embeddings (including 0 history)
+            hist_pc_list = []
+            hist_emb_list = []
+            hist_flow_list = []
+            # Weird bug.
+            for i, data in enumerate(new_batch.to_data_list()):
+                # Embeddings.
+                hist_emb_list.append(history_embed_full[:data.K.item() + 1, i])
+
+                # Historys.
+                if data.K.item() == 0:
+                    hist_pcs = torch.empty(0, data.pos.shape[0], 3).float().to(data.pos.device)
+                    hist_flows = torch.empty(0, data.pos.shape[0], 3).float().to(data.pos.device)
+                else:
+                    hist_pcs = data.history.reshape(data.K.item(), -1, 3)
+                    hist_flows = data.flow_history.reshape(data.K.item(), -1, 3)
+
+                # Add the most recent to the pcs.
+                hist_pcs = torch.cat([hist_pcs, data.pos.unsqueeze(0)], dim=0)
+                hist_flows = torch.cat([hist_flows, data.delta.squeeze(1).unsqueeze(0)], dim=0)
+
+                hist_pc_list.append(hist_pcs)
+                hist_flow_list.append(hist_flows)
+
+            emb = torch.cat(hist_emb_list, dim=0)
+            pos = torch.cat(hist_pc_list, dim=0)
+            flow_target = torch.cat(hist_flow_list, dim=0)
+            
+
+            x = flow_target.permute(0, 2, 1)
+            pos = torch.cat([pos, emb], dim=-1).permute(0, 2, 1)
+            timesteps = batch.timesteps.repeat_interleave(batch.K + 1)
+        else:
+            x = curr_flow_target
+            
+            history_embed = [history_embed_full[data.K.item(), i] for i, data in enumerate(batch.to_data_list())]
+            history_embed = torch.stack(history_embed, dim=0)
+            history_embed = history_embed.permute(0, 2, 1)
+
+            pos = torch.concat([curr_pos, history_embed], dim=1)
+            timesteps = new_batch.timesteps
+
+
         model_kwargs = dict(pos=pos)
         loss_dict = self.diffusion.training_losses(
-            self.backbone, x, batch.timesteps, model_kwargs
+            self.backbone, x, timesteps, model_kwargs
         )
         loss = loss_dict["loss"].mean()
 
@@ -90,7 +168,7 @@ class FlowTrajectoryDiffusionModule_HisDiT(L.LightningModule):
                 # f"{mode}/mag_error": mag_error,
             },
             add_dataloader_idx=False,
-            batch_size=len(batch),
+            batch_size=new_batch.num_graphs,
         )
         return None, loss
 
@@ -101,8 +179,17 @@ class FlowTrajectoryDiffusionModule_HisDiT(L.LightningModule):
         z = torch.randn(
             bs, 3 * self.traj_len, self.sample_size, device=self.device
         )  # .float()
+        # breakpoint()
+        history_embed_full = self.history_encoder(batch) # MAX_LEN x B x N_pts X D
 
-        history_embed = self.history_encoder(batch).permute(0, 2, 1)
+
+
+        # Since history embeddings now contain embeddings for each history element,
+        # padded, we want to take the final one for each (which isn't always the last)
+        history_embed = [history_embed_full[data.K.item(), i] for i, data in enumerate(batch.to_data_list())]
+        history_embed = torch.stack(history_embed, dim=0)
+        history_embed = history_embed.permute(0, 2, 1)
+
         pos = torch.concat(
             [
                 batch.pos.reshape(-1, self.sample_size, 3 * self.traj_len)
@@ -177,7 +264,16 @@ class FlowTrajectoryDiffusionModule_HisDiT(L.LightningModule):
             bs, 3 * self.traj_len, self.sample_size, device=self.device
         )  # .float()
 
-        history_embed = self.history_encoder(batch).permute(0, 2, 1)
+        history_embed_full = self.history_encoder(batch) # MAX_LEN x B x N_pts X D
+
+        # Since history embeddings now contain embeddings for each history element,
+        # padded, we want to take the final one for each (which isn't always the last)
+        history_embed = [history_embed_full[data.K.item(), i] for i, data in enumerate(batch.to_data_list())]
+        history_embed = torch.stack(history_embed, dim=0)
+
+
+
+        history_embed = history_embed.permute(0, 2, 1)
         pos = torch.concat(
             [
                 batch.pos.reshape(-1, self.sample_size, 3 * self.traj_len)
@@ -301,7 +397,7 @@ class FlowTrajectoryDiffusionModule_HisDiT(L.LightningModule):
             self.cosine_distribution_cache["y"] = []
             self.cosine_distribution_cache["colors"] = []
 
-        dataloader_names = ["val", "train", "unseen"]
+        dataloader_names = ["val", "unseen"]
         name = dataloader_names[dataloader_idx]
         with torch.no_grad():
             f_pred, loss = self.predict(batch, name)

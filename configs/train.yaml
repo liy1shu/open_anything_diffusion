@@ -7,11 +7,11 @@ defaults:
   # Each of these have their own configuration parameters.
   - dataset: trajectory
   # - model: diffuser_dit
-  - model: diffuser_hispndit
+  # - model: diffuser_hispndit
   # - model: pn++ # diffuser_pn++
 
   # History:
-  # - model: diffuser_hisdit
+  - model: diffuser_hisdit
 
   # We assume a different training config for each dataset/model pair.
   - training: ${dataset}_${model}
