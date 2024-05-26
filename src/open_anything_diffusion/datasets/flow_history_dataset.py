@@ -150,6 +150,13 @@ class FlowHistoryDataset(tgd.Dataset):
                 joints = "random"
             else:  # Close this sample - without history
                 joints = "fully-closed"
+        elif self.special_req == "50-150":
+            this_sample_open = random.randint(0, 150) < 50
+            # print(this_sample_open)
+            if this_sample_open:  # Open this sample - with history
+                joints = "random"
+            else:  # Close this sample - without history
+                joints = "fully-closed"
         elif self.special_req == "fully-closed":
             this_sample_open = False
             joints = "fully-closed"
@@ -327,9 +334,9 @@ class FlowHistoryDataset(tgd.Dataset):
         curr_pos = history[-1]
         flow = flow_history[-1]
 
-        history = (
-            history[:-1] if K >= 1 else history * 0
-        )  # No history, but the shape should be the same
+        # history = (
+        #     history[:-1] if K >= 1 else history * 0
+        # )  # No history, but the shape should be the same
         flow_history = flow_history[:-1] if K >= 1 else flow_history * 0
         lengths = lengths[:-1] if K >= 1 else lengths
         # print(history.shape, flow_history.shape, lengths)

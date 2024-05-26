@@ -22,11 +22,11 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         history=False,  ## With / without history
         randomize_camera: bool = True,
         trajectory_len: int = 1,
-        history_len: int = 10,
+        history_len: int = 1,
         seed: int = 42,
         special_req: str = None,
         toy_dataset: dict = None,
-        n_repeat: int = 100,  # By default, repeat training dataset by 100
+        n_repeat: int = 50,  # By default, repeat training dataset by 100
     ):
         super().__init__()
         self.batch_size = batch_size

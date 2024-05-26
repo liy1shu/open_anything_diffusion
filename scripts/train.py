@@ -429,7 +429,7 @@ def main(cfg):
     ######################################################################
     # Train the model.
     ######################################################################
-
+    breakpoint()
     # trainer.fit(model, train_loader, [val_loader, train_val_loader, unseen_loader], ckpt_path='/home/yishu/open_anything_diffusion/logs/train_trajectory/2023-09-11/19-01-57/checkpoints/last.ckpt')
     trainer.fit(model, train_loader, [val_loader, unseen_loader]) #train_val_loader
 
