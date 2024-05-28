@@ -65,6 +65,7 @@ def load_obj_id_to_category(toy_dataset=None):
         with open(f"{PROJECT_ROOT}/scripts/umpnet_object_list.json", "r") as f:
             data = json.load(f)
         for split in ["train-train", "train-test"]:
+            # for split in ["train-test"]:
             for id in toy_dataset[split]:
                 id_to_cat[id] = split
     return id_to_cat
@@ -313,8 +314,8 @@ def main(cfg):
         history_model = FlowTrajectoryDiffuserSimulationModule_HisPNDiT(
             network, inference_cfg=cfg.inference, model_cfg=cfg.model
         ).cuda()
-        # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hispndit/2024-05-17/14-29-19/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt"
-        ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hispndit/2024-05-19/10-49-49/checkpoints/epoch=339-step=281860-val_loss=0.00-weights-only.ckpt"
+        # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hispndit/2024-05-25/02-00-54/checkpoints/epoch=399-step=331600-val_loss=0.00-weights-only.ckpt"
+        ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hispndit/2024-05-25/02-00-54/checkpoints/epoch=299-step=248700-val_loss=0.00-weights-only-backup.ckpt"
     elif "hisdit" in cfg.model.name:
         network = {
             "DiT": DiT(
@@ -353,6 +354,8 @@ def main(cfg):
     link_names = []
 
     for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
+        if "test" not in obj_cat:
+            continue
         if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
             continue
         available_links = object_to_link[obj_id]

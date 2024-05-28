@@ -269,10 +269,15 @@ class FlowSimulationInferenceModule(L.LightningModule):
         self.network = network
         self.mask_input_channel = mask_input_channel
 
-    def __init__(self, network, inference_cfg, model_cfg) -> None:
+    def __init__(
+        self, network, inference_cfg=None, model_cfg=None, mask_input_channel=None
+    ) -> None:
         super().__init__()
         self.network = network
-        self.mask_input_channel = inference_cfg.mask_input_channel
+        if inference_cfg is not None:
+            self.mask_input_channel = inference_cfg.mask_input_channel
+        else:
+            self.mask_input_channel = mask_input_channel
 
     def load_from_ckpt(self, ckpt_file):
         ckpt = torch.load(ckpt_file)

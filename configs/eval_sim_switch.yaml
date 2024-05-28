@@ -6,7 +6,7 @@ job_type: ${mode}_${dataset.name}_${model.name}+${switch_model.name}
 defaults:
   # Each of these have their own configuration parameters.
   - dataset: trajectory  # flowbot
-  - model: diffuser_dit #pn++
+  - model: diffuser_pndit #pn++
   - switch_model: pn++ # diffuser_hisdit
   # - model: pn++
 
@@ -24,7 +24,7 @@ defaults:
 
 seed: 42
 gui: False
-website: True
+website: False
 website_port: 9002  # 9001, 9002, 9003
 
 # This is the checkpoint that we're evaluating. You can change this to whatever you need,

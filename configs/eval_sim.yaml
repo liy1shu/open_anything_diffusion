@@ -7,6 +7,7 @@ defaults:
   # Each of these have their own configuration parameters.
   - dataset: trajectory  # flowbot
   - model: diffuser_hispndit #pn++
+  # - model: diffuser_pndit
   # - model: pn++
 
   # A set of inference settings for the model. Note that these may be different
@@ -22,7 +23,7 @@ defaults:
 
 seed: 42
 gui: False
-website: True
+website: False
 website_port: 9002  # 9001, 9002, 9003
 
 # This is the checkpoint that we're evaluating. You can change this to whatever you need,
@@ -44,6 +45,10 @@ checkpoint:
   # run_id: 302dfxe5
   # run_id: 4xb2c95k
 
+  # Flowbot origianl:
+  # run_id: e0s0hxh1
+  # run_id: hyrdcsrg
+
   # Diffuser:
   # run_id: 5pp284n8  # traj1
   # run_id: o69oit80  # traj5
@@ -63,9 +68,9 @@ checkpoint:
 
   # run_id: libhkzgt   # fullset half-half newsplit flowbot
   # run_id: 9s85cqw7   # fullset half-half newsplit diffusion dit
-  run_id: fj50vjmg   # fullset half-half newsplit diffusion pndit
+  # run_id: fj50vjmg   # fullset half-half newsplit diffusion pndit
   # run_id: c7l4ss3d  # latent everywhere, learnable feature for 0 history
-  # run_id: szvd1rh7  # latent everywhere, learnable feature for 0 history, 0/1 everystep
+  run_id: cb8x0mc3  # latent everywhere, learnable feature for 0 history, 0/1 everystep
 
   reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
 
@@ -92,7 +97,10 @@ wandb:
   # group: traj7
 
   # group: door-half-half
-  group: fullset-half-half-newsplit
-  # group: fullset-half-half-history
+  # group: fullset-half-half
+  # group: fullset-half-half-newsplit
+  group: fullset-half-half-history
+
+
 
 metric_output_dir: './logs'

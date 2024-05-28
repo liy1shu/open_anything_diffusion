@@ -11,7 +11,6 @@ from rpad.partnet_mobility_utils.data import PMObject
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowSimulationInferenceModule,
 )
-from open_anything_diffusion.models.modules.history_encoder import HistoryEncoder
 from open_anything_diffusion.simulations.suction import (  # compute_flow,
     GTFlowModel,
     GTTrajectoryModel,
@@ -431,6 +430,7 @@ def trial_with_switch_models(
     all_joint=False,
     website=False,
     available_joints=None,
+    return_switch_ids=False,
 ):
     # pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/convex")
@@ -485,6 +485,7 @@ def trial_with_switch_models(
             save_name=f"{obj_id}_{joint_name}",
             website=website,
             gui=gui,
+            return_switch_ids=return_switch_ids,
         )
         sim_trajectories.append(sim_trajectory)
         if result.assertion is False:
@@ -545,22 +546,20 @@ if __name__ == "__main__":
         depth=5,
         hidden_size=128,
         num_heads=4,
+        # depth=12,
+        # hidden_size=384,
+        # num_heads=6,
         learn_sigma=True,
     ).cuda()
-
-    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-10/10-54-13/checkpoints/epoch=459-step=80500-val_loss=0.00-weights-only.ckpt"
     ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt"
-    # ckpt_file = "/home/yishu/open_anything_diffusion/pretrained/fullset_half_half_flowbot.ckpt"
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-05-02/12-35-27/checkpoints/epoch=109-step=243100-val_loss=0.00-weights-only.ckpt"
     from hydra import compose, initialize
 
     initialize(config_path="../../../configs", version_base="1.3")
-    cfg = compose(config_name="eval_sim")
+    cfg = compose(config_name="eval_sim_switch")
 
     from open_anything_diffusion.models.flow_diffuser_dit import (
         FlowTrajectoryDiffuserSimulationModule_DiT,
-    )
-    from open_anything_diffusion.models.flow_diffuser_hisdit import (
-        FlowTrajectoryDiffuserSimulationModule_HisDiT,
     )
 
     model = FlowTrajectoryDiffuserSimulationModule_DiT(
@@ -569,36 +568,82 @@ if __name__ == "__main__":
     model.load_from_ckpt(ckpt_file)
     model.eval()
 
-    # History model
-    network = {
-        "DiT": DiT(
-            in_channels=3 + 3 + 128,
-            depth=5,
-            hidden_size=128,
-            num_heads=4,
-            learn_sigma=True,
-        ).cuda(),
-        "History": HistoryEncoder(
-            history_dim=128, history_len=1, batch_norm=False
-        ).cuda(),
-    }
+    # from open_anything_diffusion.models.flow_diffuser_hisdit import (
+    #     FlowTrajectoryDiffuserSimulationModule_HisDiT,
+    # )
 
-    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-10/12-09-08/checkpoints/epoch=439-step=243320-val_loss=0.00-weights-only.ckpt"
-    history_model = FlowTrajectoryDiffuserSimulationModule_HisDiT(
-        network, inference_cfg=cfg.inference, model_cfg=cfg.model
+    # # History model
+    # network = {
+    #     "DiT": DiT(
+    #         in_channels=3 + 3 + 128,
+    #         depth=5,
+    #         hidden_size=128,
+    #         num_heads=4,
+    #         learn_sigma=True,
+    #     ).cuda(),
+    #     "History": HistoryEncoder(
+    #         history_dim=128, history_len=1, batch_norm=False
+    #     ).cuda(),
+    # }
+
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-10/12-09-08/checkpoints/epoch=439-step=243320-val_loss=0.00-weights-only.ckpt"
+    # history_model = FlowTrajectoryDiffuserSimulationModule_HisDiT(
+    #     network, inference_cfg=cfg.inference, model_cfg=cfg.model
+    # ).cuda()
+    # history_model.load_from_ckpt(ckpt_file)
+    # history_model.eval()
+
+    import rpad.pyg.nets.pointnet2 as pnp_orig
+
+    from open_anything_diffusion.models.flow_trajectory_predictor import (
+        FlowSimulationInferenceModule,
+    )
+
+    network = pnp_orig.PN2Dense(
+        in_channels=0,
+        out_channels=3,
+        p=pnp_orig.PN2DenseParams(),
     ).cuda()
-    history_model.load_from_ckpt(ckpt_file)
-    history_model.eval()
+    switch_model = FlowSimulationInferenceModule(
+        network, cfg.switch_inference, cfg.switch_model
+    ).cuda()
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_pn++/2024-03-30/08-16-05/checkpoints/epoch=88-step=98345-val_loss=0.00-weights-only.ckpt"
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_pn++/2024-05-25/04-17-41/checkpoints/epoch=95-step=53088-val_loss=0.00-weights-only.ckpt"
+    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_pn++/2024-05-26/02-37-08/checkpoints/epoch=98-step=109395-val_loss=0.00-weights-only.ckpt"
+    switch_model.load_from_ckpt(ckpt_file)
+    switch_model.eval()
 
+    obj_id = "8877"
     # trial_figs, trial_results, sim_trajectory = trial_with_diffuser(
-    trial_figs, trial_results, sim_trajectory = trial_with_diffuser_history(
+    trial_figs, trial_results, sim_trajectory = trial_with_switch_models(
         # obj_id="8877",
-        obj_id="8877",
-        model=history_model,
-        history_model=history_model,
+        obj_id=obj_id,
+        model=model,
+        switch_model=switch_model,
+        history_for_models=[False, False],
         n_step=30,
         gui=False,
         website=cfg.website,
         all_joint=False,
         available_joints=["link_1"],
+        return_switch_ids=True,
     )
+
+    x = [i for i in range(31)]
+    y, colors = sim_trajectory[0]
+    colors = ["red" if color else "blue" for color in colors[1:]]
+
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(10, 6))
+    for i in range(len(x) - 1):
+        plt.plot(x[i : i + 2], y[i : i + 2], color=colors[i])
+
+    plt.xlabel("Step")
+    plt.yticks(np.linspace(0, 1, 11))
+    plt.ylabel("Open ratio")
+    plt.title(f"DiT & FowBot - Door {obj_id}")
+    plt.savefig(
+        f"/home/yishu/open_anything_diffusion/notebooks/analysis/traj_visuals/{obj_id}_dit&flowbot.jpg"
+    )
+    breakpoint()

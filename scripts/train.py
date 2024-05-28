@@ -5,7 +5,7 @@ import lightning as L
 import omegaconf
 
 # Modules
-import rpad.pyg.nets.pointnet2 as pnp
+import rpad.pyg.nets.pointnet2 as pnp_orig
 import torch
 import wandb
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -177,7 +177,9 @@ def main(cfg):
         history="his" in cfg.model.name,
         trajectory_len=trajectory_len,  # Only used when training trajectory model
         special_req=special_req,  # special_req="fully-closed"
-        n_repeat=150 if special_req == "half-half-01" else 100,
+        n_repeat=200
+        if special_req == "half-half-01"
+        else (50 if special_req is None else 100),
         # # TODO: only for toy training!!!!!
         toy_dataset=toy_dataset,
     )
@@ -251,10 +253,10 @@ def main(cfg):
         in_channels = 1 if cfg.training.mask_input_channel else 0
 
     if "pn++" in cfg.model.name:
-        network = pnp.PN2Dense(
+        network = pnp_orig.PN2Dense(
             in_channels=in_channels,
             out_channels=3 * trajectory_len,
-            p=pnp.PN2DenseParams(),
+            p=pnp_orig.PN2DenseParams(),
         ).cuda()
     elif "dgdit" in cfg.model.name:
         network = DGDiT(
@@ -314,12 +316,12 @@ def main(cfg):
     elif "dit" in cfg.model.name:
         network = DiT(
             in_channels=in_channels + 3,
-            # depth=5,
-            # hidden_size=128,
-            # num_heads=4,
-            depth=12,
-            hidden_size=384,
-            num_heads=6,
+            depth=5,
+            hidden_size=128,
+            num_heads=4,
+            # depth=12,
+            # hidden_size=384,
+            # num_heads=6,
             learn_sigma=True,
         ).cuda()
 

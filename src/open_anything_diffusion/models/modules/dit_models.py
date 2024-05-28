@@ -12,12 +12,13 @@
 import math
 
 import numpy as np
-import rpad.pyg.nets.pointnet2 as pnp
+
+# import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import torch.nn as nn
 from timm.models.vision_transformer import Attention, Mlp
 
-# import open_anything_diffusion.models.modules.pn2 as pnp
+import open_anything_diffusion.models.modules.pn2 as pnp
 from open_anything_diffusion.models.modules.dgcnn import DGCNN
 
 

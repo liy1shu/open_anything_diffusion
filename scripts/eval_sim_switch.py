@@ -23,12 +23,6 @@ from open_anything_diffusion.models.flow_diffuser_dgdit import (
 from open_anything_diffusion.models.flow_diffuser_dit import (
     FlowTrajectoryDiffuserSimulationModule_DiT,
 )
-from open_anything_diffusion.models.flow_diffuser_hisdit import (
-    FlowTrajectoryDiffuserSimulationModule_HisDiT,
-)
-from open_anything_diffusion.models.flow_diffuser_hispndit import (
-    FlowTrajectoryDiffuserSimulationModule_HisPNDiT,
-)
 from open_anything_diffusion.models.flow_diffuser_pndit import (
     FlowTrajectoryDiffuserSimulationModule_PNDiT,
 )
@@ -68,6 +62,7 @@ def load_obj_id_to_category(toy_dataset=None):
         with open(f"{PROJECT_ROOT}/scripts/umpnet_object_list.json", "r") as f:
             data = json.load(f)
         for split in ["train-train", "train-test"]:
+            # for split in ["train-test"]:
             for id in toy_dataset[split]:
                 id_to_cat[id] = split
     return id_to_cat
@@ -93,8 +88,10 @@ inference_module_class = {
 }
 
 ckpts_dict = {
-    "pn++": "/home/yishu/open_anything_diffusion/logs/train_trajectory_pn++/2024-03-30/08-16-05/checkpoints/epoch=88-step=98345-val_loss=0.00-weights-only.ckpt",
-    "diffuser_dit": "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt",
+    # "pn++": "/home/yishu/open_anything_diffusion/logs/train_trajectory_pn++/2024-03-30/08-16-05/checkpoints/epoch=88-step=98345-val_loss=0.00-weights-only.ckpt",
+    "pn++": "/home/yishu/open_anything_diffusion/logs/train_trajectory_pn++/2024-05-26/02-37-08/checkpoints/epoch=98-step=109395-val_loss=0.00-weights-only.ckpt",
+    # "diffuser_dit": "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt",
+    "diffuser_dit": "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-05-02/12-35-27/checkpoints/epoch=109-step=243100-val_loss=0.00-weights-only.ckpt",  # Large
     "diffuser_pndit": "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-04-23/05-01-44/checkpoints/epoch=469-step=1038700-val_loss=0.00-weights-only.ckpt",
     "diffuser_hispndit": "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hispndit/2024-05-19/10-49-49/checkpoints/epoch=339-step=281860-val_loss=0.00-weights-only.ckpt",
     "diffuser_hisdit": "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-10/12-09-08/checkpoints/epoch=439-step=243320-val_loss=0.00-weights-only.ckpt",
@@ -147,9 +144,9 @@ def create_model(inference_cfg, model_cfg, dataset_cfg, run, model_name):
                 repeat_dim=False,
             ).cuda(),
         }
-        model = FlowTrajectoryDiffuserSimulationModule_HisPNDiT(
-            network, inference_cfg=inference_cfg, model_cfg=model_cfg
-        ).cuda()
+        # model = FlowTrajectoryDiffuserSimulationModule_HisPNDiT(
+        #     network, inference_cfg=inference_cfg, model_cfg=model_cfg
+        # ).cuda()
     elif "hisdit" in model_cfg.name:
         network = {
             "DiT": DiT(
@@ -163,9 +160,9 @@ def create_model(inference_cfg, model_cfg, dataset_cfg, run, model_name):
                 history_dim=128, history_len=1, batch_norm=False
             ).cuda(),
         }
-        model = FlowTrajectoryDiffuserSimulationModule_HisDiT(
-            network, inference_cfg=inference_cfg, model_cfg=model_cfg
-        ).cuda()
+        # model = FlowTrajectoryDiffuserSimulationModule_HisDiT(
+        #     network, inference_cfg=inference_cfg, model_cfg=model_cfg
+        # ).cuda()
     elif "pndit" in model_name:
         network = PN2DiT(
             in_channels=in_channels,
@@ -178,9 +175,12 @@ def create_model(inference_cfg, model_cfg, dataset_cfg, run, model_name):
     elif "dit" in model_name:
         network = DiT(
             in_channels=in_channels + 3,
-            depth=5,
-            hidden_size=128,
-            num_heads=4,
+            # depth=5,
+            # hidden_size=128,
+            # num_heads=4,
+            depth=12,
+            hidden_size=384,
+            num_heads=6,
             learn_sigma=True,
         ).cuda()
 
@@ -381,6 +381,8 @@ def main(cfg):
     link_names = []
 
     for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
+        if "Door_test" not in obj_cat:
+            continue
         if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
             continue
         available_links = object_to_link[obj_id]

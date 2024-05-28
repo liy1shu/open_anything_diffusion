@@ -829,14 +829,14 @@ def run_trial(
             )
 
             # (1) Strategy 1 - Don't change grasp point
-            ## (2) Strategy 2 - Change grasp point when leverage difference is large
-            lev_diff_thres = 0.2
-            no_movement_thres = -1
-
-            # # Don't use this policy
-            # lev_diff_thres = 100
+            # ## (2) Strategy 2 - Change grasp point when leverage difference is large
+            # lev_diff_thres = 0.2
             # no_movement_thres = -1
-            # good_movement_thres = 1000
+
+            # Don't use this policy
+            lev_diff_thres = 100
+            no_movement_thres = -1
+            good_movement_thres = 1000
 
             # Only change if the new point's leverage is a great increase
             # gripper_tip_pos = p.getClosestPoints(
@@ -1469,12 +1469,12 @@ def run_trial_with_history(
                 break
 
             # Previous step
-            # Policy - 1
-            use_history = True  # Always use history when there is history
+            # # Policy - 1
+            # use_history = True  # Always use history when there is history
             # Policy - 2
-            # use_history = (   # If last step makes progress
-            #     sim_trajectory[global_step] - sim_trajectory[global_step - 1]
-            # ) > 0.01
+            use_history = (  # If last step makes progress
+                sim_trajectory[global_step] - sim_trajectory[global_step - 1]
+            ) > 0.01
 
             prev_flow_pred = pred_flow.clone()
             prev_point_cloud = copy.deepcopy(pc_obs[4])
@@ -1527,6 +1527,7 @@ def run_trial_with_switch_models(
     save_name: str = "unknown",
     website: bool = False,
     gui: bool = False,
+    return_switch_ids: bool = False,
 ) -> TrialResult:
     torch.manual_seed(42)
     torch.set_printoptions(precision=10)  # Set higher precision for PyTorch outputs
@@ -1535,6 +1536,7 @@ def run_trial_with_switch_models(
     # p.setPhysicsEngineParameter(contactBreakingThreshold=0.01, contactSlop=0.001)
 
     sim_trajectory = [0.0] + [0] * (n_steps)  # start from 0.05
+    model_ids = [-1] + [0] * (n_steps)
 
     if website:
         # Flow animation
@@ -1579,7 +1581,7 @@ def run_trial_with_switch_models(
                 now_angle=0,
                 metric=0,
             ),
-            sim_trajectory,
+            sim_trajectory if not return_switch_ids else (sim_trajectory, model_ids),
         )
 
     # breakpoint()
@@ -1614,7 +1616,7 @@ def run_trial_with_switch_models(
                 now_angle=0,
                 metric=0,
             ),
-            sim_trajectory,
+            sim_trajectory if not return_switch_ids else (sim_trajectory, model_ids),
         )
 
     if website:
@@ -1722,7 +1724,7 @@ def run_trial_with_switch_models(
                 now_angle=0,
                 metric=0,
             ),
-            sim_trajectory,
+            sim_trajectory if not return_switch_ids else (sim_trajectory, model_ids),
         )
 
     env.attach()
@@ -1791,7 +1793,9 @@ def run_trial_with_switch_models(
                         now_angle=0,
                         metric=0,
                     ),
-                    sim_trajectory,
+                    sim_trajectory
+                    if not return_switch_ids
+                    else (sim_trajectory, model_ids),
                 )
 
             # Get the best direction.
@@ -1889,7 +1893,9 @@ def run_trial_with_switch_models(
                             now_angle=0,
                             metric=0,
                         ),
-                        sim_trajectory,
+                        sim_trajectory
+                        if not return_switch_ids
+                        else (sim_trajectory, model_ids),
                     )
 
                 env.attach()
@@ -1953,19 +1959,30 @@ def run_trial_with_switch_models(
                 writer.append_data(image)
 
             success, sim_trajectory[global_step] = env.detect_success(target_link)
+            model_ids[global_step] = should_switch_model
 
             if success:
                 for left_step in range(global_step, 31):
                     sim_trajectory[left_step] = sim_trajectory[global_step]
+                    model_ids[left_step] = model_ids[global_step]
                 break
 
             # Previous step
             # # Policy - 1
             # should_switch_model = True  # Always use history when there is history
-            # Policy - 2
-            should_switch_model = (  # If last step makes progress
-                sim_trajectory[global_step] - sim_trajectory[global_step - 1]
-            ) > 0.01
+
+            # # Policy - 2
+            # should_switch_model = (  # If last step makes progress
+            #     sim_trajectory[global_step] - sim_trajectory[global_step - 1]
+            # ) > 0.01
+
+            # Policy - 3
+            should_switch_model = (sim_trajectory[global_step]) > 0.05  # If it's opened
+
+            # # Policy - 4
+            # should_switch_model = (  # If last step makes progress
+            #     sim_trajectory[global_step]
+            # ) > 0.1 and (sim_trajectory[global_step] - sim_trajectory[global_step - 1]) > 0.01
 
             prev_flow_pred = pred_flow.clone()
             prev_point_cloud = copy.deepcopy(pc_obs[4])
@@ -2001,5 +2018,5 @@ def run_trial_with_switch_models(
             now_angle=curr_pos,
             metric=metric,
         ),
-        sim_trajectory,
+        sim_trajectory if not return_switch_ids else (sim_trajectory, model_ids),
     )
