@@ -372,6 +372,36 @@ class PMSuctionSim:
             if self.gui:
                 time.sleep(1 / 240.0)
 
+    def pull_with_constraint(
+        self, direction, n_steps: int = 100, target_link: str = ""
+    ):
+        # Link info
+        link_index = self.render_env.link_name_to_index[target_link]
+        info = p.getJointInfo(
+            self.render_env.obj_id, link_index, self.render_env.client_id
+        )
+        lower, upper = info[8], info[9]
+
+        direction = torch.as_tensor(direction)
+        direction = direction / direction.norm(dim=-1)
+        # breakpoint()
+        for _ in range(n_steps):
+            self.gripper.set_velocity(direction * 0.4, [0, 0, 0])
+            p.stepSimulation(self.render_env.client_id)
+            if self.gui:
+                time.sleep(1 / 240.0)
+
+        # Check if the object is below initial_angle
+        curr_pos = self.get_joint_value(target_link)
+        if curr_pos < lower:
+            print(curr_pos, lower)
+            p.resetJointState(
+                self.render_env.obj_id, link_index, lower, 0, self.render_env.client_id
+            )
+            return True  # Need a reset
+
+        return False  # Don't need reset
+
     def get_joint_value(self, target_link: str):
         link_index = self.render_env.link_name_to_index[target_link]
         state = p.getJointState(
@@ -533,7 +563,9 @@ class GTTrajectoryModel:
         return torch.from_numpy(trajectory)
 
 
-def choose_grasp_points(raw_pred_flow, raw_point_cloud, filter_edge=False, k=20):
+def choose_grasp_points(
+    raw_pred_flow, raw_point_cloud, filter_edge=False, k=40, last_correct_direction=None
+):
     pred_flow = raw_pred_flow.clone()
     point_cloud = raw_point_cloud
     # Choose top k non-edge grasp points:
@@ -555,7 +587,37 @@ def choose_grasp_points(raw_pred_flow, raw_point_cloud, filter_edge=False, k=20)
         best_flow_ix = torch.tensor(list(best_flow_ix) * 2)
     best_flow = pred_flow[best_flow_ix]
     best_point = point_cloud[best_flow_ix]
-    return best_flow_ix, best_flow, best_point
+
+    if last_correct_direction is None:  # No past direction as filter
+        # print(best_flow_ix.shape, best_flow.shape, best_point.shape)
+        return best_flow_ix, best_flow, best_point
+    else:
+        filtered_best_flow_ix = []
+        filtered_best_flow = []
+        filtered_best_point = []
+        for ix, flow, point in zip(best_flow_ix, best_flow, best_point):
+            # if np.dot(flow, last_correct_direction) > 0:  # angle < 90
+            if (
+                np.dot(
+                    flow / (np.linalg.norm(flow) + 1e-6),
+                    last_correct_direction
+                    / (np.linalg.norm(last_correct_direction) + 1e-6),
+                )
+                > 0.80
+            ):  # angle < 60
+                # print("last correct_direction: ", last_correct_direction / np.linalg.norm(last_correct_direction))
+                # print("good prediction:", ix, flow, point, np.dot(flow / np.linalg.norm(flow), last_correct_direction / np.linalg.norm(last_correct_direction)))
+                filtered_best_flow_ix.append(ix)
+                filtered_best_flow.append(flow)
+                filtered_best_point.append(point)
+
+        if len(filtered_best_flow) == 0:
+            return [], [], []
+        return (
+            torch.stack(filtered_best_flow_ix),
+            torch.stack(filtered_best_flow),
+            np.array(filtered_best_point),
+        )
 
 
 def run_trial(
@@ -1058,7 +1120,6 @@ def run_trial_with_history(
     )
     init_angle, target_angle = info[8], info[9]
 
-    # Sometimes doors collide with themselves. It's dumb.
     if (
         raw_data.category == "Door"
         and raw_data.semantics.by_name(target_link).type == "hinge"
@@ -1193,10 +1254,10 @@ def run_trial_with_history(
 
     prev_flow_pred = pred_flow.clone()  # History flow
     prev_point_cloud = copy.deepcopy(P_world)  # History point cloud
+    last_step_grasp_point = best_point
 
     best_flow = pred_flow[link_ixs][best_flow_ix]
     best_point = P_world[link_ixs][best_flow_ix]
-    last_step_grasp_point = best_point
 
     if not contact:
         if website:
@@ -1484,6 +1545,617 @@ def run_trial_with_history(
             for left_step in range(global_step, 31):
                 sim_trajectory[left_step] = sim_trajectory[global_step]
             break
+
+    # calculate the metrics
+    curr_pos = env.get_joint_value(target_link)
+    metric = (curr_pos - init_angle) / (target_angle - init_angle)
+    metric = min(max(metric, 0), 1)
+
+    if website:
+        if gui:
+            p.stopStateLogging(log_id)
+        else:
+            writer.close()
+            # videoWriter.release()
+
+    p.disconnect(physicsClientId=env.render_env.client_id)
+    animation_results = None if not website else animation.animate()
+    return (
+        animation_results,
+        TrialResult(  # Save the flow visuals
+            success=success,
+            contact=True,
+            assertion=True,
+            init_angle=init_angle,
+            final_angle=target_angle,
+            now_angle=curr_pos,
+            metric=metric,
+        ),
+        sim_trajectory,
+    )
+
+
+def get_local_point(object_id, link_index, world_point):
+    if link_index == -1:
+        # Base link (root link)
+        position, orientation = p.getBasePositionAndOrientation(object_id)
+    else:
+        # Specific link
+        link_state = p.getLinkState(object_id, link_index)
+        position = link_state[4]  # Link world position
+        orientation = link_state[5]  # Link world orientation
+
+    # Convert orientation to a rotation matrix
+    rotation_matrix = p.getMatrixFromQuaternion(orientation)
+    rotation_matrix = np.array(rotation_matrix).reshape(3, 3)
+
+    # Transform the world point to local coordinates
+    local_point = np.dot(
+        np.linalg.inv(rotation_matrix), (world_point - np.array(position))
+    )
+    return local_point
+
+
+def get_world_point(object_id, link_index, local_point):
+    if link_index == -1:
+        # Base link (root link)
+        position, orientation = p.getBasePositionAndOrientation(object_id)
+    else:
+        # Specific link
+        link_state = p.getLinkState(object_id, link_index)
+        position = link_state[4]  # Link world position
+        orientation = link_state[5]  # Link world orientation
+
+    # Convert orientation to a rotation matrix
+    rotation_matrix = p.getMatrixFromQuaternion(orientation)
+    rotation_matrix = np.array(rotation_matrix).reshape(3, 3)
+
+    # Transform the local point to world coordinates
+    world_point = np.dot(rotation_matrix, local_point) + np.array(position)
+    return world_point
+
+
+# Filter the inconsistent actions
+def run_trial_with_history_filter(
+    env: PMSuctionSim,
+    raw_data: PMObject,
+    target_link: str,
+    model,
+    model_with_history,
+    gt_model=None,  # When we use mask_input_channel=True, this is the mask generator
+    n_steps: int = 30,
+    n_pts: int = 1200,
+    save_name: str = "unknown",
+    website: bool = False,
+    gui: bool = False,
+) -> TrialResult:
+    torch.manual_seed(42)
+    torch.set_printoptions(precision=10)  # Set higher precision for PyTorch outputs
+    np.set_printoptions(precision=10)
+    # p.setPhysicsEngineParameter(numSolverIterations=10)
+    # p.setPhysicsEngineParameter(contactBreakingThreshold=0.01, contactSlop=0.001)
+
+    initial_movement_thres = 0.01
+    max_trial_per_step = 50
+    this_step_trial = 0
+
+    sim_trajectory = [0.0] + [0] * (n_steps)  # start from 0.05
+    correct_direction_stack = []  # The direction stack
+
+    if website:
+        # Flow animation
+        animation = FlowNetAnimation()
+
+    # First, reset the environment.
+    env.reset()
+    # Joint information
+    info = p.getJointInfo(
+        env.render_env.obj_id,
+        env.render_env.link_name_to_index[target_link],
+        env.render_env.client_id,
+    )
+    init_angle, target_angle = info[8], info[9]
+
+    if (
+        raw_data.category == "Door"
+        and raw_data.semantics.by_name(target_link).type == "hinge"
+    ):
+        env.set_joint_state(target_link, init_angle + 0.0 * (target_angle - init_angle))
+        # env.set_joint_state(target_link, 0.2)
+
+    if raw_data.semantics.by_name(target_link).type == "hinge":
+        env.set_joint_state(target_link, init_angle + 0.0 * (target_angle - init_angle))
+        # env.set_joint_state(target_link, 0.05)
+
+    # Predict the flow on the observation.
+    pc_obs = env.render(filter_nonobj_pts=True, n_pts=n_pts)
+    rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
+
+    if init_angle == target_angle:  # Not movable
+        p.disconnect(physicsClientId=env.render_env.client_id)
+        return (
+            None,
+            TrialResult(
+                success=False,
+                assertion=False,
+                contact=False,
+                init_angle=0,
+                final_angle=0,
+                now_angle=0,
+                metric=0,
+            ),
+            sim_trajectory,
+        )
+
+    # breakpoint()
+    if gt_model is None:  # GT Flow model
+        pred_trajectory = model(copy.deepcopy(pc_obs))
+    else:
+        movable_mask = gt_model.get_movable_mask(pc_obs)
+        pred_trajectory = model(copy.deepcopy(pc_obs), movable_mask)
+    # pred_trajectory = model(copy.deepcopy(pc_obs))
+    # breakpoint()
+    pred_trajectory = pred_trajectory.reshape(
+        pred_trajectory.shape[0], -1, pred_trajectory.shape[-1]
+    )
+    traj_len = pred_trajectory.shape[1]  # Trajectory length
+    print(f"Predicting {traj_len} length trajectories.")
+    pred_flow = pred_trajectory[:, 0, :]
+
+    # flow_fig(torch.from_numpy(P_world), pred_flow, sizeref=0.1, use_v2=True).show()
+    # breakpoint()
+
+    # Filter down just the points on the target link.
+    link_ixs = pc_seg == env.render_env.link_name_to_index[target_link]
+    # assert link_ixs.any()
+    if not link_ixs.any():
+        p.disconnect(physicsClientId=env.render_env.client_id)
+        print("link_ixs finds no point")
+        animation_results = animation.animate() if website else None
+        return (
+            animation_results,
+            TrialResult(
+                success=False,
+                assertion=False,
+                contact=False,
+                init_angle=0,
+                final_angle=0,
+                now_angle=0,
+                metric=0,
+            ),
+            sim_trajectory,
+        )
+
+    if website:
+        if gui:
+            # Record simulation video
+            log_id = p.startStateLogging(
+                p.STATE_LOGGING_VIDEO_MP4,
+                f"./logs/simu_eval/video_assets/{save_name}.mp4",
+            )
+        else:
+            video_file = f"./logs/simu_eval/video_assets/{save_name}.mp4"
+            # # cv2 output videos won't show on website
+            frame_width = 640
+            frame_height = 480
+            # fps = 5
+            # fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            # videoWriter = cv2.VideoWriter(video_file, fourcc, fps, (frame_width, frame_height))
+            # videoWriter.write(rgbImgOpenCV)
+
+            # Camera param
+            writer = imageio.get_writer(video_file, fps=5)
+
+            # Capture image
+            width, height, rgbImg, depthImg, segImg = p.getCameraImage(
+                width=frame_width,
+                height=frame_height,
+                viewMatrix=p.computeViewMatrixFromYawPitchRoll(
+                    cameraTargetPosition=[0, 0, 0],
+                    distance=5,
+                    # yaw=180,
+                    yaw=270,
+                    pitch=-30,
+                    roll=0,
+                    upAxisIndex=2,
+                ),
+                projectionMatrix=p.computeProjectionMatrixFOV(
+                    fov=60,
+                    aspect=float(frame_width) / frame_height,
+                    nearVal=0.1,
+                    farVal=100.0,
+                ),
+            )
+            image = np.array(rgbImg, dtype=np.uint8)
+            image = image[:, :, :3]
+
+            # Add the frame to the video
+            writer.append_data(image)
+
+    # The attachment point is the point with the highest flow.
+    # best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
+    best_flow_ixs, best_flows, best_points = choose_grasp_points(
+        pred_flow[link_ixs], P_world[link_ixs], filter_edge=False, k=40
+    )
+
+    # Teleport to an approach pose, approach, the object and grasp.
+    if website and not gui:
+        # contact = env.teleport_and_approach(best_point, best_flow, video_writer=writer)
+        best_flow_ix_id, contact = env.teleport(
+            best_points, best_flows, video_writer=writer
+        )
+    else:
+        # contact = env.teleport_and_approach(best_point, best_flow)
+        best_flow_ix_id, contact = env.teleport(best_points, best_flows)
+
+    best_flow = pred_flow[link_ixs][best_flow_ixs[best_flow_ix_id]]
+    best_point = P_world[link_ixs][best_flow_ixs[best_flow_ix_id]]
+
+    if not contact:
+        if website:
+            segmented_flow = np.zeros_like(pred_flow)
+            segmented_flow[link_ixs] = pred_flow[link_ixs]
+            segmented_flow = np.array(
+                normalize_trajectory(
+                    torch.from_numpy(np.expand_dims(segmented_flow, 1))
+                ).squeeze()
+            )
+            animation.add_trace(
+                torch.as_tensor(P_world),
+                torch.as_tensor([P_world]),
+                torch.as_tensor([segmented_flow]),
+                "red",
+            )
+            if gui:
+                p.stopStateLogging(log_id)
+            else:
+                # Write video
+                writer.close()
+                # videoWriter.release()
+
+        print("No contact!")
+        p.disconnect(physicsClientId=env.render_env.client_id)
+        animation_results = None if not website else animation.animate()
+        return (
+            animation_results,
+            TrialResult(
+                success=False,
+                assertion=True,
+                contact=False,
+                init_angle=0,
+                final_angle=0,
+                now_angle=0,
+                metric=0,
+            ),
+            sim_trajectory,
+        )
+
+    env.attach()
+    use_history = False
+    # gripper_tip_pos_before, _ = p.getBasePositionAndOrientation(env.gripper.base_id)
+    # points = p.getContactPoints(bodyA=env.gripper.body_id, bodyB=env.render_env.obj_id, linkIndexA=0)
+    # assert len(points)!=0, "Contact is None!!!!"
+    # gripper_tip_pos_before, _ = points[0][5], points[0][6]
+    gripper_tip_pos_before = best_point
+    gripper_object_contact_local = get_local_point(
+        env.render_env.obj_id,
+        env.render_env.link_name_to_index[target_link],
+        gripper_tip_pos_before,
+    )
+    # print(gripper_tip_pos_before, gripper_object_contact_local, get_world_point(env.render_env.obj_id, env.render_env.link_name_to_index[target_link], gripper_object_contact_local))
+    # env.pull(best_flow)
+    reset = env.pull_with_constraint(best_flow, target_link=target_link)
+    if not reset:
+        env.attach()
+        gripper_tip_pos_after = get_world_point(
+            env.render_env.obj_id,
+            env.render_env.link_name_to_index[target_link],
+            gripper_object_contact_local,
+        )
+
+        delta_gripper = np.array(gripper_tip_pos_after) - np.array(
+            gripper_tip_pos_before
+        )
+        last_step_grasp_point = best_point
+        # Judge whether the movement is
+        if np.linalg.norm(delta_gripper) > initial_movement_thres:
+            use_history = True
+            prev_flow_pred = pred_flow.clone()  # History flow
+            prev_point_cloud = copy.deepcopy(P_world)  # History point cloud
+
+            correct_direction_stack.append(delta_gripper)
+    else:  # Need a reset because hit the lower boundary - definitely not a good step
+        use_history = False
+        last_step_grasp_point = None  # No contact anymore
+
+    # breakpoint()
+    success = False
+
+    global_step = 1
+    # for i in range(n_steps):
+    while global_step < n_steps:
+        pc_obs = env.render(
+            filter_nonobj_pts=True, n_pts=n_pts
+        )  # Render a new point cloud!  #
+        # Predict the flow on the observation.
+        if gt_model is None:  # GT Flow model
+            if use_history:
+                print("Using history!")
+                # Use history model
+                pred_trajectory = model_with_history(
+                    copy.deepcopy(pc_obs),
+                    copy.deepcopy(prev_point_cloud),
+                    copy.deepcopy(prev_flow_pred.numpy()),
+                )
+            else:
+                pred_trajectory = model(copy.deepcopy(pc_obs))
+        else:
+            movable_mask = gt_model.get_movable_mask(pc_obs)
+            # breakpoint()
+            pred_trajectory = model(pc_obs, movable_mask)
+            # pred_trajectory = model(pc_obs)
+        pred_trajectory = pred_trajectory.reshape(
+            pred_trajectory.shape[0], -1, pred_trajectory.shape[-1]
+        )
+
+        pred_flow = pred_trajectory[:, 0, :]
+        rgb, depth, seg, P_cam, P_world, pc_seg, segmap = pc_obs
+
+        # Filter down just the points on the target link.
+        # breakpoint()
+        link_ixs = pc_seg == env.render_env.link_name_to_index[target_link]
+        # assert link_ixs.any()
+        if not link_ixs.any():
+            if website:
+                if gui:
+                    p.stopStateLogging(log_id)
+                else:
+                    writer.close()
+                    # videoWriter.release()
+            p.disconnect(physicsClientId=env.render_env.client_id)
+            print("link_ixs finds no point")
+            animation_results = animation.animate() if website else None
+            return (
+                animation_results,
+                TrialResult(
+                    assertion=False,
+                    success=False,
+                    contact=False,
+                    init_angle=0,
+                    final_angle=0,
+                    now_angle=0,
+                    metric=0,
+                ),
+                sim_trajectory,
+            )
+
+        # Get the best direction.
+        # best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
+        best_flow_ixs, best_flows, best_points = choose_grasp_points(
+            pred_flow[link_ixs],
+            P_world[link_ixs],
+            filter_edge=False,
+            k=40,
+            last_correct_direction=None
+            if len(correct_direction_stack) == 0
+            else correct_direction_stack[-1],
+        )
+        have_to_execute_incorrect = False
+
+        if (
+            len(best_flows) == 0
+        ):  # All top 20 points are filtered out! - Not a good prediction - move on!
+            this_step_trial += 1
+            if (
+                this_step_trial > max_trial_per_step
+            ):  # To make the process go on, must make an action!
+                have_to_execute_incorrect = True
+                print("has to execute incorrect!!!")
+                best_flow_ixs, best_flows, best_points = choose_grasp_points(
+                    pred_flow[link_ixs],
+                    P_world[link_ixs],
+                    filter_edge=False,
+                    k=20,
+                    last_correct_direction=None,
+                )
+            else:
+                continue
+
+        # (1) Strategy 1 - Don't change grasp point
+        # (2) Strategy 2 - Change grasp point when leverage difference is large
+        lev_diff_thres = 0.2
+        no_movement_thres = -1
+
+        # # Don't switch grasp point
+        # lev_diff_thres = 100
+        # no_movement_thres = -1
+        # good_movement_thres = 1000
+
+        if last_step_grasp_point is not None:  # Still grasping!
+            gripper_tip_pos, _ = p.getBasePositionAndOrientation(env.gripper.body_id)
+            pcd_dist = torch.tensor(P_world[link_ixs] - np.array(gripper_tip_pos)).norm(
+                dim=-1
+            )
+            grasp_point_id = pcd_dist.argmin()
+            lev_diff = best_flows.norm(dim=-1) - pred_flow[link_ixs][
+                grasp_point_id
+            ].norm(dim=-1)
+
+        if (  # need to switch grasp point
+            last_step_grasp_point is None or lev_diff[0] > lev_diff_thres
+        ):
+            env.reset_gripper()
+            p.stepSimulation(
+                env.render_env.client_id
+            )  # Make sure the constraint is lifted
+
+            if website and not gui:
+                # contact = env.teleport_and_approach(best_point, best_flow, video_writer=writer)
+                best_flow_ix_id, contact = env.teleport(
+                    best_points, best_flows, video_writer=writer
+                )
+            else:
+                # contact = env.teleport_and_approach(best_point, best_flow)
+                best_flow_ix_id, contact = env.teleport(best_points, best_flows)
+            best_flow = pred_flow[link_ixs][best_flow_ixs[best_flow_ix_id]]
+            best_point = P_world[link_ixs][best_flow_ixs[best_flow_ix_id]]
+            last_step_grasp_point = best_point  # Grasp a new point
+            # print("new!", last_step_grasp_point)
+
+            if not contact:
+                if website:
+                    segmented_flow = np.zeros_like(pred_flow)
+                    segmented_flow[link_ixs] = pred_flow[link_ixs]
+                    segmented_flow = np.array(
+                        normalize_trajectory(
+                            torch.from_numpy(np.expand_dims(segmented_flow, 1))
+                        ).squeeze()
+                    )
+                    animation.add_trace(
+                        torch.as_tensor(P_world),
+                        torch.as_tensor([P_world]),
+                        torch.as_tensor([segmented_flow]),
+                        "red",
+                    )
+                    if gui:
+                        p.stopStateLogging(log_id)
+                    else:
+                        # Write video
+                        writer.close()
+                        # videoWriter.release()
+
+                print("No contact!")
+                p.disconnect(physicsClientId=env.render_env.client_id)
+                animation_results = None if not website else animation.animate()
+                return (
+                    animation_results,
+                    TrialResult(
+                        success=False,
+                        assertion=True,
+                        contact=False,
+                        init_angle=0,
+                        final_angle=0,
+                        now_angle=0,
+                        metric=0,
+                    ),
+                    sim_trajectory,
+                )
+
+            env.attach()
+        else:  # Stick to the old grasp point
+            best_flow = pred_flow[link_ixs][best_flow_ixs[0]]
+            best_point = P_world[link_ixs][grasp_point_id]
+            last_step_grasp_point = (
+                best_point  # The original point - don't need to change
+            )
+            # print("same:", last_step_grasp_point)
+
+        # Execute the step:
+        env.attach()
+        # gripper_tip_pos_before, _ = p.getBasePositionAndOrientation(env.gripper.base_id)
+        gripper_tip_pos_before = last_step_grasp_point
+        gripper_object_contact_local = get_local_point(
+            env.render_env.obj_id,
+            env.render_env.link_name_to_index[target_link],
+            gripper_tip_pos_before,
+        )
+        reset = env.pull_with_constraint(best_flow, target_link=target_link)
+        if not reset:
+            env.attach()
+            gripper_tip_pos_after = get_world_point(
+                env.render_env.obj_id,
+                env.render_env.link_name_to_index[target_link],
+                gripper_object_contact_local,
+            )
+
+            # Now with filter: we guarantee that every step is correct!!
+            delta_gripper = np.array(gripper_tip_pos_after) - np.array(
+                gripper_tip_pos_before
+            )
+            # print(delta_gripper, np.linalg.norm(delta_gripper))
+            if (
+                len(correct_direction_stack) == 0
+                and np.linalg.norm(delta_gripper) < initial_movement_thres
+            ):  # Still waiting for the initial movement!!!
+                use_history = False
+            else:
+                use_history = True
+                last_step_grasp_point = best_point
+                if len(correct_direction_stack) == 0 or (
+                    np.dot(delta_gripper, correct_direction_stack[-1]) > 0
+                    and np.linalg.norm(delta_gripper) > initial_movement_thres
+                ):  # The actual move direction is consistent with the previous movements
+                    if have_to_execute_incorrect and (
+                        np.dot(delta_gripper, correct_direction_stack[-1]) > 0
+                    ):
+                        print("Doesn't satisfy cosine condition, but is correct!")
+                    prev_flow_pred = pred_flow.clone()  # History flow
+                    prev_point_cloud = copy.deepcopy(P_world)  # History point cloud
+
+                    correct_direction_stack.append(
+                        delta_gripper / (np.linalg.norm(delta_gripper) + 1e-6)
+                    )
+        else:  # Reset
+            use_history = False
+            last_step_grasp_point = None
+
+        global_step += 1
+        this_step_trial = 0
+
+        if website:
+            # Add pcd to flow animation
+            segmented_flow = np.zeros_like(pred_flow)
+            segmented_flow[link_ixs] = pred_flow[link_ixs]
+            segmented_flow = np.array(
+                normalize_trajectory(
+                    torch.from_numpy(np.expand_dims(segmented_flow, 1))
+                ).squeeze()
+            )
+            animation.add_trace(
+                torch.as_tensor(P_world),
+                torch.as_tensor([P_world]),
+                torch.as_tensor([segmented_flow]),
+                "red",
+            )
+
+            # Capture frame
+            width, height, rgbImg, depthImg, segImg = p.getCameraImage(
+                width=frame_width,
+                height=frame_height,
+                viewMatrix=p.computeViewMatrixFromYawPitchRoll(
+                    cameraTargetPosition=[0, 0, 0],
+                    distance=5,
+                    yaw=270,
+                    # yaw=180,
+                    pitch=-30,
+                    roll=0,
+                    upAxisIndex=2,
+                ),
+                projectionMatrix=p.computeProjectionMatrixFOV(
+                    fov=60,
+                    aspect=float(frame_width) / frame_height,
+                    nearVal=0.1,
+                    farVal=100.0,
+                ),
+            )
+            # rgbImgOpenCV = cv2.cvtColor(np.array(rgbImg), cv2.COLOR_RGB2BGR)
+            # videoWriter.write(rgbImgOpenCV)
+            image = np.array(rgbImg, dtype=np.uint8)
+            image = image[:, :, :3]
+
+            # Add the frame to the video
+            writer.append_data(image)
+
+        success, sim_trajectory[global_step] = env.detect_success(target_link)
+
+        if success:
+            for left_step in range(global_step, 31):
+                sim_trajectory[left_step] = sim_trajectory[global_step]
+            break
+
+        # pc_obs = env.render(filter_nonobj_pts=True, n_pts=1200)   # Render a new point cloud!
+        # if len(correct_direction_stack) == 2:
+        #     breakpoint()
 
     # calculate the metrics
     curr_pos = env.get_joint_value(target_link)

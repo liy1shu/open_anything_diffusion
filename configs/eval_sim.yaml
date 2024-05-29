@@ -23,7 +23,7 @@ defaults:
 
 seed: 42
 gui: False
-website: False
+website: True
 website_port: 9002  # 9001, 9002, 9003
 
 # This is the checkpoint that we're evaluating. You can change this to whatever you need,
