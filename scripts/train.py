@@ -1,5 +1,6 @@
 import json
-
+import os
+# os.environ['OPENBLAS_NUM_THREADS'] = '2'
 import hydra
 import lightning as L
 import omegaconf
