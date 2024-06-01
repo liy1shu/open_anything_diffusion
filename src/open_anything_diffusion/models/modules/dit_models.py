@@ -12,12 +12,12 @@
 import math
 
 import numpy as np
-import rpad.pyg.nets.pointnet2 as pnp
+import rpad.pyg.nets.pointnet2 as pnp_original
 import torch
 import torch.nn as nn
 from timm.models.vision_transformer import Attention, Mlp
 
-# import open_anything_diffusion.models.modules.pn2 as pnp
+import open_anything_diffusion.models.modules.pn2 as pnp
 from open_anything_diffusion.models.modules.dgcnn import DGCNN
 
 
@@ -307,10 +307,10 @@ class PN2DiT(nn.Module):
         # nn.init.constant_(self.x_embedder.proj.bias, 0)
 
         # 1) Point Cloud features
-        self.x_embedder = pnp.PN2Dense(
+        self.x_embedder = pnp_original.PN2Dense(
             in_channels=3,
             out_channels=hidden_size,
-            p=pnp.PN2DenseParams(),
+            p=pnp_original.PN2DenseParams(),
         )
 
         # self.x_embedder = PatchEmbed(input_size, patch_size, in_channels + 3, hidden_size, bias=True)

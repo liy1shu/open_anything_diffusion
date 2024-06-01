@@ -331,6 +331,7 @@ def main(cfg):
             website=cfg.website,
             all_joint=True,
             available_joints=available_links,
+            consistency_check=cfg.consistency_check,
         )
         sim_trajectories += sim_trajectory
         link_names += [f"{obj_id}_{link}" for link in available_links]

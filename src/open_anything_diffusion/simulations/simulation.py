@@ -278,6 +278,7 @@ def trial_with_diffuser(
     all_joint=False,
     website=False,
     available_joints=None,
+    consistency_check=False,
 ):
     # pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/convex")
@@ -330,6 +331,7 @@ def trial_with_diffuser(
             save_name=f"{obj_id}_{joint_name}",
             website=website,
             gui=gui,
+            consistency_check=consistency_check,
         )
         sim_trajectories.append(sim_trajectory)
         if result.assertion is False:
@@ -355,6 +357,8 @@ def trial_with_diffuser_history(
     all_joint=False,
     website=False,
     available_joints=None,
+    consistency_check=True,
+    history_filter=True,
 ):
     # pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/convex")
@@ -409,6 +413,8 @@ def trial_with_diffuser_history(
             save_name=f"{obj_id}_{joint_name}",
             website=website,
             gui=gui,
+            consistency_check=consistency_check,
+            history_filter=history_filter,
         )
         sim_trajectories.append(sim_trajectory)
         if result.assertion is False:

@@ -359,7 +359,7 @@ def main(cfg):
     repeat_time = 5
     obj_ids = []
     for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
-        if "Door_test" not in obj_cat:
+        if "test" not in obj_cat:
             continue
         if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
             continue
@@ -394,6 +394,8 @@ def main(cfg):
             website=cfg.website,
             all_joint=True,
             available_joints=available_links,
+            consistency_check=cfg.consistency_check,
+            history_filter=cfg.history_filter,
         )
         sim_trajectories += sim_trajectory
         link_names += [f"{obj_id}_{link}" for link in available_links]

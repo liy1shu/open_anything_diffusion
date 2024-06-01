@@ -711,6 +711,7 @@ def run_trial(
     save_name: str = "unknown",
     website: bool = False,
     gui: bool = False,
+    consistency_check: bool = False,
 ) -> TrialResult:
     torch.manual_seed(42)
     torch.set_printoptions(precision=10)  # Set higher precision for PyTorch outputs
@@ -718,7 +719,13 @@ def run_trial(
     # p.setPhysicsEngineParameter(numSolverIterations=10)
     # p.setPhysicsEngineParameter(contactBreakingThreshold=0.01, contactSlop=0.001)
 
+    initial_movement_thres = 1e-6
+    good_movement_thres = 0.01
+    max_trial_per_step = 50
+    this_step_trial = 0
+
     sim_trajectory = [0.0] + [0] * (n_steps)  # start from 0.05
+    correct_direction_stack = []  # The direction stack
 
     if website:
         # Flow animation
@@ -910,9 +917,28 @@ def run_trial(
         )
 
     env.attach()
+    gripper_tip_pos_before = best_point
+    gripper_object_contact_local = get_local_point(
+        env.render_env.obj_id,
+        env.render_env.link_name_to_index[target_link],
+        gripper_tip_pos_before,
+    )
     reset = env.pull_with_constraint(best_flow, target_link=target_link)
     if not reset:
         env.attach()
+        gripper_tip_pos_after = get_world_point(
+            env.render_env.obj_id,
+            env.render_env.link_name_to_index[target_link],
+            gripper_object_contact_local,
+        )
+
+        delta_gripper = np.array(gripper_tip_pos_after) - np.array(
+            gripper_tip_pos_before
+        )
+
+        if np.linalg.norm(delta_gripper) > initial_movement_thres:  # Because
+            correct_direction_stack.append(delta_gripper)
+
         last_step_grasp_point = best_point
     else:
         last_step_grasp_point = None
@@ -973,8 +999,40 @@ def run_trial(
             # Get the best direction.
             # best_flow_ix = pred_flow[link_ixs].norm(dim=-1).argmax()
             best_flow_ixs, best_flows, best_points = choose_grasp_points(
-                pred_flow[link_ixs], P_world[link_ixs], filter_edge=False, k=20
+                pred_flow[link_ixs],
+                P_world[link_ixs],
+                filter_edge=False,
+                k=20,
+                last_correct_direction=None
+                if len(correct_direction_stack) == 0 or not consistency_check
+                else correct_direction_stack[-1],
             )
+
+            have_to_execute_incorrect = False
+
+            if (
+                len(best_flows) == 0
+            ):  # All top 20 points are filtered out! - Not a good prediction - move on!
+                this_step_trial += 1
+                if (
+                    this_step_trial > max_trial_per_step
+                ):  # To make the process go on, must make an action!
+                    have_to_execute_incorrect = True
+                    print("has to execute incorrect!!!")
+
+                    # Density choosing
+                    (
+                        best_flow_ixs,
+                        best_flows,
+                        best_points,
+                    ) = choose_grasp_points_density(
+                        pred_flow[link_ixs],
+                        P_world[link_ixs],
+                        k=20,
+                        last_correct_direction=None,
+                    )
+                else:
+                    continue
 
             # (1) Strategy 1 - Don't change grasp point
             # (2) Strategy 2 - Change grasp point when leverage difference is large
@@ -985,15 +1043,7 @@ def run_trial(
             # lev_diff_thres = 100
             # no_movement_thres = -1
             # good_movement_thres = 1000
-
-            # Only change if the new point's leverage is a great increase
-            # gripper_tip_pos = p.getClosestPoints(
-            #     env.gripper.body_id, env.render_env.obj_id, distance=0.5, linkIndexA=0
-            # )[0][5]
-            # gripper_object_contact = p.getContactPoints(
-            #     env.gripper.body_id, env.render_env.obj_id, linkIndexA=0
-            # )[0]
-            # gripper_contact, object_contact = gripper_object_contact[5], gripper_object_contact[6]
+            print(f"Trial {this_step_trial} times")
             if last_step_grasp_point is not None:
                 gripper_tip_pos, _ = p.getBasePositionAndOrientation(
                     env.gripper.body_id
@@ -1087,14 +1137,45 @@ def run_trial(
                 # The original point - don't need to change
                 # print("same:", last_step_grasp_point)
 
+            # Execute the step:
             env.attach()
-            # Perform the pulling.
-            # if best_flow.sum() == 0:
-            #     continue
+            gripper_tip_pos_before = last_step_grasp_point
+            gripper_object_contact_local = get_local_point(
+                env.render_env.obj_id,
+                env.render_env.link_name_to_index[target_link],
+                gripper_tip_pos_before,
+            )
             reset = env.pull_with_constraint(best_flow, target_link=target_link)
             if not reset:
                 env.attach()
                 last_step_grasp_point = best_point
+                gripper_tip_pos_after = get_world_point(
+                    env.render_env.obj_id,
+                    env.render_env.link_name_to_index[target_link],
+                    gripper_object_contact_local,
+                )
+
+                # Now with filter: we guarantee that every step is correct!!
+                delta_gripper = np.array(gripper_tip_pos_after) - np.array(
+                    gripper_tip_pos_before
+                )
+
+                # -----------Update the direction and history stack!!!!-----------
+                if len(correct_direction_stack) == 0:
+                    # Update direction stack
+                    if np.linalg.norm(delta_gripper) > initial_movement_thres:
+                        correct_direction_stack.append(
+                            delta_gripper / (np.linalg.norm(delta_gripper) + 1e-6)
+                        )
+                else:
+                    # Update direction stack:
+                    if (
+                        np.dot(delta_gripper, correct_direction_stack[-1]) > 0
+                    ):  # Consistent
+                        correct_direction_stack.append(
+                            delta_gripper / (np.linalg.norm(delta_gripper) + 1e-6)
+                        )
+
             else:  # Need to reset gripper
                 last_step_grasp_point = None
             # print(best_flow)
@@ -1154,6 +1235,7 @@ def run_trial(
                 break
 
             pc_obs = env.render(filter_nonobj_pts=True, n_pts=1200)
+            this_step_trial = 0  # This step is executed!
 
         if success:
             for left_step in range(global_step, 31):
@@ -1679,7 +1761,7 @@ def run_trial_with_history(
     )
 
 
-# Filter the inconsistent actions
+# Policy to filter the inconsistent actions and incorrect histories
 def run_trial_with_history_filter(
     env: PMSuctionSim,
     raw_data: PMObject,
@@ -1692,12 +1774,16 @@ def run_trial_with_history_filter(
     save_name: str = "unknown",
     website: bool = False,
     gui: bool = False,
+    consistency_check=True,
+    history_filter=True,
 ) -> TrialResult:
     # torch.manual_seed(42)
     torch.set_printoptions(precision=10)  # Set higher precision for PyTorch outputs
     np.set_printoptions(precision=10)
     # p.setPhysicsEngineParameter(numSolverIterations=10)
     # p.setPhysicsEngineParameter(contactBreakingThreshold=0.01, contactSlop=0.001)
+    print("Use consistency check:", consistency_check)
+    print("Use history filter:", history_filter)
 
     initial_movement_thres = 1e-6
     good_movement_thres = 0.01
@@ -1935,18 +2021,23 @@ def run_trial_with_history_filter(
 
         last_step_grasp_point = best_point
 
-        if np.linalg.norm(delta_gripper) > initial_movement_thres:  # Because
+        if (
+            np.linalg.norm(delta_gripper) > initial_movement_thres
+        ):  # just to make sure it's not 0, 0, 0
             correct_direction_stack.append(delta_gripper)
-        # Judge whether the movement is
-        if np.linalg.norm(delta_gripper) > good_movement_thres:
+        # Judge whether the movement is good - if it's good, update the history! (If not using history_filter, just update the history at every step!)
+        if not history_filter or np.linalg.norm(delta_gripper) > good_movement_thres:
             use_history = True
             prev_flow_pred = pred_flow.clone()  # History flow
             prev_point_cloud = copy.deepcopy(P_world)  # History point cloud
 
-            # correct_direction_stack.append(delta_gripper)
-            # print("Pushing to correct direction stack:::::", np.linalg.norm(delta_gripper), delta_gripper / np.linalg.norm(delta_gripper), best_flow / np.linalg.norm(best_flow), np.dot(delta_gripper / np.linalg.norm(delta_gripper), best_flow / np.linalg.norm(best_flow)))
     else:  # Need a reset because hit the lower boundary - definitely not a good step
-        use_history = False
+        if history_filter:
+            use_history = False
+        else:  # no history filter: always update history
+            use_history = True
+            prev_flow_pred = pred_flow.clone()  # History flow
+            prev_point_cloud = copy.deepcopy(P_world)  # History point cloud
         last_step_grasp_point = None  # No contact anymore
 
     # breakpoint()
@@ -2039,9 +2130,9 @@ def run_trial_with_history_filter(
         best_flow_ixs, best_flows, best_points = choose_grasp_points_density(
             pred_flow[link_ixs],
             P_world[link_ixs],
-            k=40,
+            k=20,
             last_correct_direction=None
-            if len(correct_direction_stack) == 0
+            if len(correct_direction_stack) == 0 or not consistency_check
             else correct_direction_stack[-1],
         )
 
@@ -2210,7 +2301,10 @@ def run_trial_with_history_filter(
                         delta_gripper / (np.linalg.norm(delta_gripper) + 1e-6)
                     )
                 # Update history stack
-                if np.linalg.norm(delta_gripper) > good_movement_thres:
+                if (
+                    not history_filter
+                    or np.linalg.norm(delta_gripper) > good_movement_thres
+                ):
                     use_history = True
                     prev_flow_pred = pred_flow.clone()  # History flow
                     prev_point_cloud = copy.deepcopy(P_world)  # History point cloud
@@ -2220,11 +2314,19 @@ def run_trial_with_history_filter(
                     correct_direction_stack.append(
                         delta_gripper / (np.linalg.norm(delta_gripper) + 1e-6)
                     )
-                    if np.linalg.norm(delta_gripper) > good_movement_thres:
+                    if (
+                        not history_filter
+                        or np.linalg.norm(delta_gripper) > good_movement_thres
+                    ):
                         prev_flow_pred = pred_flow.clone()  # History flow
                         prev_point_cloud = copy.deepcopy(P_world)  # History point cloud
         else:  # Reset
-            use_history = False
+            if history_filter:
+                use_history = False
+            else:  # no history filter: always update history
+                use_history = True
+                prev_flow_pred = pred_flow.clone()  # History flow
+                prev_point_cloud = copy.deepcopy(P_world)  # History point cloud
             last_step_grasp_point = None
         global_step += 1
         this_step_trial = 0

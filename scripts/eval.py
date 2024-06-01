@@ -221,7 +221,7 @@ def main(cfg):
     ######################################################################
 
     model = inference_module_class[cfg.dataset.name](
-        network, inference_config=cfg.inference
+        network, inference_cfg=cfg.inference
     )
 
     ######################################################################
