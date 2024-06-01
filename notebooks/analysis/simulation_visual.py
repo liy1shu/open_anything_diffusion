@@ -21,7 +21,7 @@ from open_anything_diffusion.models.flow_diffuser_pndit import (
 from open_anything_diffusion.models.modules.dit_models import DiT, PN2DiT, PN2HisDiT
 
 model_one_name = "DiT"
-model_two_name = "HisPNDiT"
+model_two_name = "pn++"
 
 
 # Trial with dit

@@ -150,10 +150,15 @@ for obj_id, joint_id in tqdm.tqdm(zip(door_ids, joint_ids)):
 
         for i in range(trial_cnts):
             with torch.no_grad():
+                # pred_flow = model(
+                #     copy.deepcopy(pc_obs),
+                #     history_pcd=past_pcd,
+                #     history_flow=past_gt_flow,
+                # )[:, 0, :]
                 pred_flow = model(
                     copy.deepcopy(pc_obs),
-                    history_pcd=past_pcd,
-                    history_flow=past_gt_flow,
+                    history_pcd=None,
+                    history_flow=None,
                 )[:, 0, :]
 
             pred_flow_nz = pred_flow[nonzero_gt_flowixs]

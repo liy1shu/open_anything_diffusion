@@ -291,12 +291,37 @@ def main(cfg):
     sim_trajectories = []
     link_names = []
 
+    # Create the evaluate object lists
+    repeat_time = 5
+    obj_ids = []
     for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
+        if "test" not in obj_cat:
+            continue
         if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
             continue
         available_links = object_to_link[obj_id]
         if len(available_links) == 0:
             continue
+        obj_ids.append(obj_id)
+    obj_ids = obj_ids * repeat_time
+
+    import random
+
+    random.shuffle(obj_ids)
+
+    # for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
+    #     if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
+    #         continue
+    #     available_links = object_to_link[obj_id]
+    #     if len(available_links) == 0:
+    #         continue
+    for obj_id in tqdm.tqdm(obj_ids):
+        obj_cat = id_to_cat[obj_id]
+        # if "test" not in obj_cat:
+        #     continue
+        # if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
+        #     continue
+        available_links = object_to_link[obj_id]
         print(f"OBJ {obj_id} of {obj_cat}")
         trial_figs, trial_results, sim_trajectory = trial_with_diffuser(
             obj_id=obj_id,

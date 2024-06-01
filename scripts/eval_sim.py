@@ -264,18 +264,42 @@ def main(cfg):
     category_counts = {}
     sim_trajectories = []
     link_names = []
-    # for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
-    for obj_id, available_links in tqdm.tqdm(list(object_to_link.items())):
-        # if obj_id not in object_ids:  # For Door dataset
-        #     continue
+
+    # Create the evaluate object lists
+    repeat_time = 5
+    obj_ids = []
+    for obj_id in tqdm.tqdm(list(object_to_link.keys())):
+        obj_cat = id_to_cat[obj_id]
+        if "test" not in obj_cat:
+            continue
         if obj_id not in id_to_cat.keys():
             continue
+        available_links = object_to_link[obj_id]
         if len(available_links) == 0:
             continue
-
-        obj_cat = id_to_cat[obj_id]
         if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
             continue
+        obj_ids.append(obj_id)
+    obj_ids = obj_ids * repeat_time
+
+    import random
+
+    random.shuffle(obj_ids)
+
+    # for obj_id, available_links in tqdm.tqdm(list(object_to_link.items())):
+    for obj_id in tqdm.tqdm(obj_ids):
+        # # if obj_id not in object_ids:  # For Door dataset
+        # #     continue
+        # if obj_id not in id_to_cat.keys():
+        #     continue
+        # if len(available_links) == 0:
+        #     continue
+
+        # if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
+        #     continue
+
+        available_links = object_to_link[obj_id]
+        obj_cat = id_to_cat[obj_id]
         print(f"OBJ {obj_id} of {obj_cat}")
         trial_figs, trial_results, sim_trajectory = trial_with_prediction(
             obj_id=obj_id,

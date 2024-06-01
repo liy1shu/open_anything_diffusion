@@ -21,6 +21,9 @@ from open_anything_diffusion.simulations.suction import (  # compute_flow,
     run_trial_with_switch_models,
 )
 
+# from open_anything_diffusion.simulations.suction_v2 import PMSuctionSim
+# from open_anything_diffusion.simulations.suction_v2 import run_trial, run_trial_with_history_filter
+
 
 def trial_flow(
     obj_id="41083",
@@ -505,10 +508,11 @@ def trial_with_switch_models(
 
 
 if __name__ == "__main__":
-    np.random.seed(42)
-    torch.manual_seed(42)
+    np.random.seed(2003)
+    torch.manual_seed(2003)
     # trial_flow(obj_id="41083", available_joints=["link_0"], gui=True, website=False)
-    # trial_gt_trajectory(obj_id="8867", traj_len=30, gui=False)
+    # trial_gt_trajectory(obj_id="8877", traj_len=3, available_joints=['link_2'], gui=False, website=True)
+    # breakpoint()
     # trial_with_prediction(obj_id="35059", traj_len=15, n_step=1, gui=True)
 
     # length = 15
@@ -616,7 +620,18 @@ if __name__ == "__main__":
     #     in_channels=0,
     #     out_channels=3,
     #     p=pnp_orig.PN2DenseParams(),
-    # ).cuda()
+    # )#.cuda()
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_pn++/2024-05-26/02-37-08/checkpoints/epoch=98-step=109395-val_loss=0.00-weights-only.ckpt"
+    # ckpt = torch.load(ckpt_file)
+    # model = FlowSimulationInferenceModule(
+    #     network, cfg.inference, cfg.model
+    # )
+
+    # trial_figs, trial_results, sim_trajectory = trial_with_prediction(
+    #     obj_id="8877", network=model, n_step=30, gui=False, website=True, available_joints=["link_1"], all_joint=False
+    # )
+    # breakpoint()
+
     # switch_model = FlowSimulationInferenceModule(
     #     network, cfg.switch_inference, cfg.switch_model
     # ).cuda()
@@ -626,7 +641,7 @@ if __name__ == "__main__":
     # switch_model.load_from_ckpt(ckpt_file)
     # switch_model.eval()
 
-    obj_id = "7265"  # 8877
+    obj_id = "8877"  # 8877
     # trial_figs, trial_results, sim_trajectory = trial_with_diffuser(
     # trial_figs, trial_results, sim_trajectory = trial_with_switch_models(
     trial_figs, trial_results, sim_trajectory = trial_with_diffuser_history(
@@ -641,7 +656,7 @@ if __name__ == "__main__":
         gui=False,
         website=cfg.website,
         all_joint=False,
-        available_joints=["link_0"],
+        available_joints=["link_1"],
         # return_switch_ids=True,
     )
 
