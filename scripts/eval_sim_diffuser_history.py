@@ -351,8 +351,8 @@ def main(cfg):
         history_model = FlowHistoryLatentEncodingPredictorInferenceModule(
             network, inference_config=cfg.inference
         ).cuda()
-        ckpt_file = "/home/wenhui/open_anything_diffusion/logs/latent_encoding/epoch=0-step=6629-val_loss=0.00-weights-only.ckpt"
-        
+        # ckpt_file = "/home/wenhui/open_anything_diffusion/logs/latent_encoding/epoch=0-step=6629-val_loss=0.00-weights-only.ckpt"
+        ckpt_file = "/home/wenhui/open_anything_diffusion/logs/latent_encoding/epoch=999-step=6629000.ckpt"
 
     history_model.load_from_ckpt(ckpt_file)
     history_model.eval()

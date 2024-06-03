@@ -292,7 +292,7 @@ class FlowHistoryLatentEncodingPredictorInferenceModule(L.LightningModule):
 
     # copy over the training module after it works
     def forward(self, batch) -> torch.Tensor:  # type: ignore
-        # breakpoint()
+        breakpoint()
         history_embeds = torch.zeros(len(batch.lengths), self.encoder_dim).to(
             self.device
         )  # Also add the no history batch
