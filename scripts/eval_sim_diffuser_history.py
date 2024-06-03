@@ -36,7 +36,7 @@ from open_anything_diffusion.models.flow_trajectory_diffuser import (
     FlowTrajectoryDiffuserSimulationModule_PN2,
 )
 from open_anything_diffusion.models.latent_encoding import (
-    FlowHistoryLatentEncodingPredictorInferenceModule,
+    FlowTrajectoryDiffuserSimulationModule_latent_encoding,
 )
 from open_anything_diffusion.models.modules.dit_models import (
     DGDiT,
@@ -90,7 +90,7 @@ inference_module_class = {
     "diffuser_dgdit": FlowTrajectoryDiffuserSimulationModule_DGDiT,
     "diffuser_dit": FlowTrajectoryDiffuserSimulationModule_DiT,
     "diffuser_pndit": FlowTrajectoryDiffuserSimulationModule_PNDiT,
-    "his_latent_everywhere": FlowHistoryLatentEncodingPredictorInferenceModule,
+    "his_latent_everywhere": FlowTrajectoryDiffuserSimulationModule_latent_encoding,
 }
 
 
@@ -348,11 +348,12 @@ def main(cfg):
             out_channels=3 * trajectory_len,
             p=pnp.PN2DenseParams(),
         )
-        history_model = FlowHistoryLatentEncodingPredictorInferenceModule(
-            network, inference_config=cfg.inference
+        history_model = FlowTrajectoryDiffuserSimulationModule_latent_encoding(
+            network, inference_config=cfg.inference, model_config=cfg.model
         ).cuda()
         # ckpt_file = "/home/wenhui/open_anything_diffusion/logs/latent_encoding/epoch=0-step=6629-val_loss=0.00-weights-only.ckpt"
-        ckpt_file = "/home/wenhui/open_anything_diffusion/logs/latent_encoding/epoch=999-step=6629000.ckpt"
+        # ckpt_file = "/home/wenhui/open_anything_diffusion/logs/latent_encoding/epoch=999-step=6629000.ckpt"
+        ckpt_file = "/home/wenhui/open_anything_diffusion/logs/latent_encoding/epoch=0-step=6629-val_loss=0.00-weights-only.ckpt"
 
     history_model.load_from_ckpt(ckpt_file)
     history_model.eval()
@@ -372,7 +373,8 @@ def main(cfg):
     category_counts = {}
     sim_trajectories = []
     link_names = []
-    breakpoint()
+    # breakpoint()
+
     # Create the evaluate object lists
     repeat_time = 5
     obj_ids = []
@@ -390,7 +392,7 @@ def main(cfg):
     import random
 
     random.shuffle(obj_ids)
-    breakpoint()
+    # breakpoint()
     # for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
     for obj_id in tqdm.tqdm(obj_ids):
         # breakpoint()

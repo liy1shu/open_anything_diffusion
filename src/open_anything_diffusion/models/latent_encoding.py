@@ -11,6 +11,13 @@ from flowbot3d.models.artflownet import artflownet_loss, flow_metrics
 from plotly.subplots import make_subplots
 from torch import optim
 
+from open_anything_diffusion.metrics.trajectory import (
+    artflownet_loss,
+    flow_metrics,
+    normalize_trajectory,
+)
+
+import numpy as np
 import math
 from torch.nn import init
 
@@ -254,6 +261,73 @@ class FlowHistoryLatentEncodingPredictorTrainingModule(L.LightningModule):
         return {"artflownet_plot": fig}
 
 
+
+class FlowTrajectoryDiffuserSimulationModule_latent_encoding(L.LightningModule):
+    def __init__(self, network, inference_config, model_config) -> None:
+        super().__init__()
+        
+        in_dim = 0
+        p = ArtFlowNetHistoryParams()
+
+        # Latent encoding point net
+        # self.flownet = PN2DenseLatentEncodingEverywhere(
+        #     p.encoder_dim, in_dim, 3, pnp.PN2DenseParams()
+        # )
+        self.model = FlowHistoryLatentEncodingPredictorInferenceModule(network, inference_config)
+
+        # Create the history flow encoder
+        # Indim is 3 because we are going to pass in the history of prev flows
+        self.prev_flow_encoder = pnp.PN2Encoder(in_dim=3, out_dim=p.encoder_dim)
+
+        # Start token
+        # self.start_token = nn.Parameter(torch.empty((p.encoder_dim,)), requires_grad=True)
+        # bound = 1/math.sqrt(p.encoder_dim)
+        # init.uniform_(self.start_token, -bound, bound)
+        self.no_history_embedding = nn.Parameter(
+            torch.randn(p.encoder_dim), requires_grad=True
+        )
+
+        self.p = p
+
+        self.batch_size = inference_config.batch_size
+        # self.mask_input_ch
+        self.history_len = 1
+        self.sample_size = 1200
+
+    def load_from_ckpt(self, ckpt_file):
+        # self.model.flownet.load_from_ckpt(ckpt_file)
+        ckpt = torch.load(ckpt_file)
+        # breakpoint()
+        self.model.load_state_dict(ckpt["state_dict"])
+
+    def forward(self, data, history_pcd=None, history_flow=None) -> torch.Tensor:  # type: ignore
+        # Maybe add the mask as an input to the network.
+        rgb, depth, seg, P_cam, P_world, pc_seg, segmap = data
+        K = self.history_len
+        if history_pcd is None:
+            history_pcd = np.zeros_like(P_world)
+            history_flow = np.zeros_like(P_world)
+            K = 0
+        data = tgd.Data(
+            pos=torch.from_numpy(P_world).float().cuda(),
+            history=torch.from_numpy(history_pcd).float().cuda(),
+            flow_history=torch.from_numpy(history_flow).float().cuda(),
+            K=K,
+            lengths=self.sample_size
+            # mask=torch.ones(P_world.shape[0]).float(),
+        )
+        # breakpoint()
+        batch = tgd.Batch.from_data_list([data])
+        # batch = batch.to(self.device)
+        # batch.x = batch.mask.reshape(len(batch.mask), 1)
+        self.eval()
+        with torch.no_grad():
+            # trajectory = self.model.faster_predict_step(batch, 0)
+            trajectory = self.model.predict_step(batch, 0)
+        # print("Trajectory prediction shape:", trajectory.shape)
+        return trajectory.cpu()
+
+
 class FlowHistoryLatentEncodingPredictorInferenceModule(L.LightningModule):
     def __init__(self, network, inference_config) -> None:
         super().__init__()
@@ -284,15 +358,21 @@ class FlowHistoryLatentEncodingPredictorInferenceModule(L.LightningModule):
         # self.mask_input_channel = inference_config.mask_input_channel
 
         # self.vectorize = inference_config.vectorize
+        self.history_len = 1
+        self.sample_size = 1200
+        self.traj_len = inference_config.trajectory_len
+        self.encoder_dim = p.encoder_dim
 
 
     def load_from_ckpt(self, ckpt_file):
         ckpt = torch.load(ckpt_file)
-        self.load_state_dict(ckpt["state_dict"])
+        # breakpoint()
+        self.flownet.load_state_dict(ckpt["state_dict"])
 
     # copy over the training module after it works
     def forward(self, batch) -> torch.Tensor:  # type: ignore
-        breakpoint()
+        # breakpoint()
+        rgb, depth, seg, P_cam, P_world, pc_seg, segmap = batch # should use this to split the batch
         history_embeds = torch.zeros(len(batch.lengths), self.encoder_dim).to(
             self.device
         )  # Also add the no history batch
@@ -321,7 +401,44 @@ class FlowHistoryLatentEncodingPredictorInferenceModule(L.LightningModule):
         return pred_flow
 
     def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:  # type: ignore
-        return self.forward(batch)
+        # return self.forward(batch)
+        breakpoint()
+        # torch.eval()
+        self.eval()
+        # bs = batch.pos.shape[0] // self.sample_size
+        # z = torch.randn(bs, 3 * self.traj_len, 30, 40, device=self.device)  # .float()
+
+        # history_embed = (
+        #     self.prev_flow_encoder(batch).permute(0, 2, 1).squeeze(-1)
+        # )  # History embedding
+        # batch.history_embed = history_embed
+        # pos = (
+        #     batch.pos.reshape(-1, self.sample_size, 3 * self.traj_len)
+        #     .permute(0, 2, 1)
+        #     .float()
+        #     .cuda()
+        # )
+        # model_kwargs = dict(pos=pos, context=batch.cuda())
+
+        # samples, results = self.diffusion.p_sample_loop(
+        #     self.backbone,
+        #     z.shape,
+        #     z,
+        #     clip_denoised=False,
+        #     model_kwargs=model_kwargs,
+        #     progress=True,
+        #     device=self.device,
+        # )
+
+        # f_pred = (
+        #     torch.flatten(samples, start_dim=2, end_dim=3)
+        #     .permute(0, 2, 1)
+        #     .reshape(-1, 3 * self.traj_len)
+        #     .unsqueeze(1)
+        # )
+        f_pred = self.forward(batch).unsqueeze(1)
+        f_pred = normalize_trajectory(f_pred)
+        return f_pred
 
     # the predict step input is different now, pay attention
     def predict(self, xyz: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
