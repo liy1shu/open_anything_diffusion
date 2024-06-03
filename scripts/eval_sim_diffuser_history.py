@@ -35,6 +35,9 @@ from open_anything_diffusion.models.flow_diffuser_pndit import (
 from open_anything_diffusion.models.flow_trajectory_diffuser import (
     FlowTrajectoryDiffuserSimulationModule_PN2,
 )
+from open_anything_diffusion.models.latent_encoding import (
+    FlowHistoryLatentEncodingPredictorInferenceModule,
+)
 from open_anything_diffusion.models.modules.dit_models import (
     DGDiT,
     DiT,
@@ -87,6 +90,7 @@ inference_module_class = {
     "diffuser_dgdit": FlowTrajectoryDiffuserSimulationModule_DGDiT,
     "diffuser_dit": FlowTrajectoryDiffuserSimulationModule_DiT,
     "diffuser_pndit": FlowTrajectoryDiffuserSimulationModule_PNDiT,
+    "his_latent_everywhere": FlowHistoryLatentEncodingPredictorInferenceModule,
 }
 
 
@@ -336,6 +340,20 @@ def main(cfg):
         ).cuda()
         ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hisdit/2024-05-10/12-09-08/checkpoints/epoch=439-step=243320-val_loss=0.00-weights-only.ckpt"
 
+    elif "latent_everywhere" in cfg.model.name:
+        trajectory_len = 1
+        mask_channel = 1 
+        network = pnp.PN2Dense(
+            in_channels=mask_channel,
+            out_channels=3 * trajectory_len,
+            p=pnp.PN2DenseParams(),
+        )
+        history_model = FlowHistoryLatentEncodingPredictorInferenceModule(
+            network, inference_config=cfg.inference
+        ).cuda()
+        ckpt_file = "/home/wenhui/open_anything_diffusion/logs/latent_encoding/epoch=0-step=6629-val_loss=0.00-weights-only.ckpt"
+        
+
     history_model.load_from_ckpt(ckpt_file)
     history_model.eval()
 
@@ -354,14 +372,14 @@ def main(cfg):
     category_counts = {}
     sim_trajectories = []
     link_names = []
-
+    breakpoint()
     # Create the evaluate object lists
     repeat_time = 5
     obj_ids = []
     for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
         if "test" not in obj_cat:
             continue
-        if not os.path.exists(f"/home/yishu/datasets/partnet-mobility/raw/{obj_id}"):
+        if not os.path.exists(f"/home/wenhui/datasets/partnet-mobility/raw/{obj_id}"):
             continue
         available_links = object_to_link[obj_id]
         if len(available_links) == 0:
@@ -372,9 +390,10 @@ def main(cfg):
     import random
 
     random.shuffle(obj_ids)
-
+    breakpoint()
     # for obj_id, obj_cat in tqdm.tqdm(list(id_to_cat.items())):
     for obj_id in tqdm.tqdm(obj_ids):
+        # breakpoint()
         obj_cat = id_to_cat[obj_id]
         # if "test" not in obj_cat:
         #     continue
@@ -434,7 +453,7 @@ def main(cfg):
         table = wandb.Table(dataframe=wandb_df.reset_index())
         run.log({f"simulation_metric_table": table})
 
-    print(wandb_df)
+        print(wandb_df)
 
     traces = []
     xs = list(range(31))

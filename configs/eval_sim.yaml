@@ -6,7 +6,8 @@ job_type: ${mode}_${dataset.name}_${model.name}
 defaults:
   # Each of these have their own configuration parameters.
   - dataset: trajectory  # flowbot
-  - model: diffuser_hispndit #pn++
+  - model: his_latent_everywhere
+  # diffuser_hispndit #pn++
   # - model: diffuser_pndit
   # - model: pn++
 
@@ -26,7 +27,7 @@ gui: False
 website: False
 website_port: 9002  # 9001, 9002, 9003
 
-consistency_check: True
+consistency_check: False
 history_filter: False
 
 
@@ -75,9 +76,9 @@ checkpoint:
   # run_id: 9s85cqw7   # fullset half-half newsplit diffusion dit
   # run_id: fj50vjmg   # fullset half-half newsplit diffusion pndit
   # run_id: c7l4ss3d  # latent everywhere, learnable feature for 0 history
-  run_id: cb8x0mc3  # latent everywhere, learnable feature for 0 history, 0/1 everystep
-
-  reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
+  # run_id: ?? #cb8x0mc3  # latent everywhere, learnable feature for 0 history, 0/1 everystep
+  reference:  /home/wenhui/online_adaptation/logs/train_flowbot_history_tformer_dits/2024-05-30/08-11-57/checkpoints/epoch=590-step=3917739.ckpt
+  # ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
 
 resources:
   num_workers: 30
