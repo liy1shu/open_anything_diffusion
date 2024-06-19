@@ -24,11 +24,11 @@ defaults:
 
 seed: 42
 gui: False
-website: False
+website: True #False
 website_port: 9002  # 9001, 9002, 9003
 
 consistency_check: False
-history_filter: False
+history_filter: True
 
 
 # This is the checkpoint that we're evaluating. You can change this to whatever you need,

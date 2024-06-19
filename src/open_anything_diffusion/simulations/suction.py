@@ -1842,7 +1842,6 @@ def run_trial_with_history_filter(
 
     # breakpoint()
     if gt_model is None:  # GT Flow model
-        breakpoint()
         pred_trajectory = model(copy.deepcopy(pc_obs))
     else:
         movable_mask = gt_model.get_movable_mask(pc_obs)

@@ -419,7 +419,7 @@ def trial_with_diffuser_history(
         sim_trajectories.append(sim_trajectory)
         if result.assertion is False:
             with open(
-                "/home/yishu/open_anything_diffusion/logs/assertion_failure.txt", "a"
+                "/home/wenhui/open_anything_diffusion/logs/assertion_failure.txt", "a"
             ) as f:
                 f.write(f"Object: {obj_id}; Joint: {joint_name}\n")
             continue

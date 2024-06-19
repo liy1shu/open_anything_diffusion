@@ -402,7 +402,7 @@ class FlowHistoryLatentEncodingPredictorInferenceModule(L.LightningModule):
 
     def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:  # type: ignore
         # return self.forward(batch)
-        breakpoint()
+        # breakpoint()
         # torch.eval()
         self.eval()
         # bs = batch.pos.shape[0] // self.sample_size
