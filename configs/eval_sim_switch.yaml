@@ -24,7 +24,7 @@ defaults:
 
 seed: 42
 gui: False
-website: False
+website: True
 website_port: 9002  # 9001, 9002, 9003
 
 # This is the checkpoint that we're evaluating. You can change this to whatever you need,
@@ -64,8 +64,9 @@ checkpoint:
   # run_id: 7be7n97m    # door half-half flowbot
 
   # run_id: libhkzgt   # fullset half-half newsplit flowbot
+  run_id: hyrdcsrg   # fullset randomly opened flowbot
   # run_id: 9s85cqw7   # fullset half-half newsplit diffusion dit
-  run_id: fj50vjmg   # fullset half-half newsplit diffusion pndit
+  # run_id: fj50vjmg   # fullset half-half newsplit diffusion pndit
   # run_id: c7l4ss3d  # latent everywhere, learnable feature for 0 history
   # run_id: szvd1rh7  # latent everywhere, learnable feature for 0 history, 0/1 everystep
 
@@ -94,7 +95,8 @@ wandb:
   # group: traj7
 
   # group: door-half-half
-  group: fullset-half-half-newsplit
+  group: fullset-half-half
+  # group: fullset-half-half-newsplit
   # group: fullset-half-half-history
 
 metric_output_dir: './logs'

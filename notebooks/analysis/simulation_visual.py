@@ -19,9 +19,10 @@ from open_anything_diffusion.models.flow_diffuser_pndit import (
     FlowTrajectoryDiffuserSimulationModule_PNDiT,
 )
 from open_anything_diffusion.models.modules.dit_models import DiT, PN2DiT, PN2HisDiT
+from open_anything_diffusion.models.modules.history_encoder import HistoryEncoder
 
 model_one_name = "DiT"
-model_two_name = "pn++"
+model_two_name = "HisPNDiT"
 
 
 # Trial with dit
@@ -113,8 +114,11 @@ elif model_two_name == "HisPNDiT":
         ).cuda(),
     }
 
-    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hispndit/2024-05-25/02-00-54/checkpoints/epoch=299-step=248700-val_loss=0.00-weights-only.ckpt"
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hispndit/2024-05-25/02-00-54/checkpoints/epoch=299-step=248700-val_loss=0.00-weights-only.ckpt"
     # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_hispndit/2024-05-25/02-00-54/checkpoints/epoch=359-step=298440.ckpt"
+    ckpt_file = (
+        "/home/yishu/open_anything_diffusion/pretrained/fullset_half_half_hispndit.ckpt"
+    )
     switch_model = FlowTrajectoryDiffuserSimulationModule_HisPNDiT(
         network, inference_cfg=cfg.inference, model_cfg=cfg.model
     ).cuda()
@@ -142,8 +146,10 @@ elif model_two_name == "pn++":
     switch_model.eval()
 
 
-obj_ids = ["8877", "8877", "9065", "8867", "8893"]
-joint_ids = [0, 1, 0, 0, 1]
+# obj_ids = ["8877", "8877", "9065", "8867", "8893"]
+# joint_ids = [0, 1, 0, 0, 1]
+obj_ids = ["8867"]
+joint_ids = [0]
 pm_dir = os.path.expanduser("~/datasets/partnet-mobility/convex")
 
 for obj_id, joint_id in zip(obj_ids, joint_ids):
@@ -156,21 +162,28 @@ for obj_id, joint_id in zip(obj_ids, joint_ids):
     print(target_link)
 
     # trial_figs, trial_results, sim_trajectory = trial_with_diffuser(
-    trial_figs, trial_results, sim_trajectory = trial_with_switch_models(
+    trial_figs, trial_results, all_signals = trial_with_diffuser_history(
         # obj_id="8877",
         obj_id=obj_id,
         model=switch_model,
+        history_model=switch_model,
+        # model=switch_model,
         # model=model,
-        switch_model=switch_model,
+        # switch_model=switch_model,
         # switch_model=model,
-        history_for_models=[False, True],
+        # history_for_models=[False, True],
         n_step=30,
         gui=False,
         website=True,
         all_joint=False,
         available_joints=[target_link],
-        return_switch_ids=True,
+        consistency_check=True,
+        history_filter=True,
+        analysis=True
+        # return_switch_ids=True,
     )
+    (sim_trajectory, update_history_signals, cc_cnts, sgp_signals) = all_signals[0]
+    # breakpoint()
 
     import matplotlib.pyplot as plt
 
@@ -181,19 +194,36 @@ for obj_id, joint_id in zip(obj_ids, joint_ids):
     # plt.title(f'Flowbot - Door {obj_id} {target_link}')
     # plt.title(f'PNDiT & FlowBot - {obj_id} {target_link}')
     plt.title(f"HisPNDiT - {obj_id} {target_link}")
+    fig, ax1 = plt.subplots()
 
     x = [i for i in range(31)]
-    y, colors = sim_trajectory[0]
-    colors = ["red" if color else "blue" for color in colors[1:]]
-    # colors = ["blue"] * 30
+    y = sim_trajectory
+    # colors = ["red" if color else "blue" for color in colors[1:]]
+    colors = ["blue"] * 30
     # colors = ["red"] * 30
 
     for i in range(len(x) - 1):
-        plt.plot(x[i : i + 2], y[i : i + 2], color=colors[i])
+        plt.plot(x[i : i + 2], y[i : i + 2], color=colors[i], alpha=0.6)
 
     plt.xlabel("Step")
     plt.yticks(np.linspace(0, 1, 11))
     plt.ylabel("Open ratio")
+
+    for i in range(len(update_history_signals)):
+        if update_history_signals[i]:
+            plt.plot(x[i], y[i], marker="*", color="red", markersize=10, alpha=0.8)
+        if sgp_signals[i]:
+            plt.plot(x[i], y[i], marker="^", color="yellow", markersize=10, alpha=0.8)
+
+    new_cc_cnts = [0] * len(x)
+    for i in range(len(cc_cnts)):
+        new_cc_cnts[i] = cc_cnts[i] + 1
+
+    ax2 = ax1.twinx()
+    # Plotting the second dataset
+    ax2.hist(new_cc_cnts, bins=x, color="blue", alpha=0.2)
+    ax2.set_ylabel("Trial counts", color="b")
+    ax2.tick_params(axis="y", labelcolor="b")
 
     # plt.savefig(f'./traj_visuals/{obj_id}_{target_link}_dit&flowbot.jpg')
     # plt.savefig(f'./traj_visuals/{obj_id}_{target_link}_dit.jpg')

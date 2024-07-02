@@ -11,12 +11,11 @@ from rpad.partnet_mobility_utils.data import PMObject
 from open_anything_diffusion.models.flow_trajectory_predictor import (
     FlowSimulationInferenceModule,
 )
-from open_anything_diffusion.simulations.suction import (  # compute_flow,
+from open_anything_diffusion.simulations.suction import (  # compute_flow,; run_trial_with_history,
     GTFlowModel,
     GTTrajectoryModel,
     PMSuctionSim,
     run_trial,
-    run_trial_with_history,
     run_trial_with_history_filter,
     run_trial_with_switch_models,
 )
@@ -359,6 +358,7 @@ def trial_with_diffuser_history(
     available_joints=None,
     consistency_check=True,
     history_filter=True,
+    analysis=False,
 ):
     # pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/convex")
@@ -415,6 +415,7 @@ def trial_with_diffuser_history(
             gui=gui,
             consistency_check=consistency_check,
             history_filter=history_filter,
+            analysis=analysis,
         )
         sim_trajectories.append(sim_trajectory)
         if result.assertion is False:

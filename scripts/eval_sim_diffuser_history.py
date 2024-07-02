@@ -4,6 +4,7 @@
 
 import json
 import os
+import pickle as pkl
 
 import hydra
 import lightning as L
@@ -341,6 +342,10 @@ def main(cfg):
 
     # Simulation and results.
     print("Simulating")
+    instance_results_json = {}  # The success or not results
+    flow_results_json = {}  # The flow visualizations
+    os.makedirs("./logs/flow_vis")
+
     if cfg.website:
         # Visualization html
         os.makedirs("./logs/simu_eval/video_assets/")
@@ -404,7 +409,14 @@ def main(cfg):
         if obj_cat not in category_counts.keys():
             category_counts[obj_cat] = 0
         category_counts[obj_cat] += len(trial_results)
-        for result in trial_results:
+
+        # for result in trial_results:
+        for result, link_name in zip(
+            trial_results, [f"{obj_id}_{link}" for link in available_links]
+        ):
+            instance_results_json[
+                link_name
+            ] = result.metric  # record the normalized distance
             metric_df.loc[obj_cat]["success_rate"] += result.success
             metric_df.loc[obj_cat]["norm_dist"] += result.metric
 
@@ -414,11 +426,16 @@ def main(cfg):
                 tag = f"{obj_id}_{joint_name}"
                 if fig is not None:
                     doc.add_plot(obj_cat, tag, fig)
-                doc.add_video(
-                    obj_cat,
-                    f"{tag}{'_NO CONTACT' if not trial_results[id].contact else ''}",
-                    f"http://128.2.178.238:{cfg.website_port}/video_assets/{tag}.mp4",
-                )
+                    with open(
+                        f"./logs/flow_vis/{tag}.pkl", "wb"
+                    ) as f:  # Save the flow visualization (not in website, but for demo)
+                        pkl.dump(fig, f)
+
+                    doc.add_video(
+                        obj_cat,
+                        f"{tag}{'_NO CONTACT' if not trial_results[id].contact else ''}",
+                        f"http://128.2.178.238:{cfg.website_port}/video_assets/{tag}.mp4",
+                    )
             # print(trial_results)
             doc.write_site("./logs/simu_eval")
 
@@ -433,6 +450,10 @@ def main(cfg):
 
         table = wandb.Table(dataframe=wandb_df.reset_index())
         run.log({f"simulation_metric_table": table})
+
+        # Save/update the instance result json
+        with open("./logs/instance_result.json", "w") as f:
+            json.dump(instance_results_json, f)
 
     print(wandb_df)
 

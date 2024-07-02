@@ -9,6 +9,9 @@ import copy
 import os
 
 import pybullet as p
+
+# Model 0 - FlowBot
+import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import tqdm
 from rpad.partnet_mobility_utils.data import PMObject
@@ -17,9 +20,27 @@ from open_anything_diffusion.metrics.trajectory import flow_metrics
 from open_anything_diffusion.models.flow_diffuser_hispndit import (
     FlowTrajectoryDiffuserSimulationModule_HisPNDiT,
 )
+from open_anything_diffusion.models.flow_trajectory_predictor import (
+    FlowSimulationInferenceModule,
+)
 from open_anything_diffusion.models.modules.dit_models import PN2HisDiT
 from open_anything_diffusion.models.modules.history_encoder import HistoryEncoder
 from open_anything_diffusion.simulations.suction import GTFlowModel, PMSuctionSim
+
+network = pnp.PN2Dense(
+    in_channels=0,
+    out_channels=3 * cfg.inference.trajectory_len,
+    p=pnp.PN2DenseParams(),
+)
+ckpt = torch.load(
+    "/home/yishu/open_anything_diffusion/logs/train_trajectory_pn++/2024-03-18/12-13-31/checkpoints/epoch=78-step=3476-val_loss=0.00-weights-only.ckpt"
+)
+# ckpt = torch.load('/home/yishu/open_anything_diffusion/logs/train_trajectory_pn++/2024-05-26/02-37-08/checkpoints/epoch=98-step=109395-val_loss=0.00-weights-only.ckpt')
+network.load_state_dict(
+    {k.partition(".")[2]: v for k, v, in ckpt["state_dict"].items()}
+)
+flowbot = FlowSimulationInferenceModule(network, mask_input_channel=False)
+flowbot.eval()
 
 # Model 1 - DiT
 # network = DiT(
@@ -86,8 +107,10 @@ model.eval()
 
 # door_ids = ["8877", "8877", "9065", "9410", "8867", "9388", "8893"]
 # joint_ids = [0, 1, 0, 0, 0, 0, 1]
-door_ids = ["8877"]
+door_ids = ["8867"]
 joint_ids = [0]
+# door_ids = ["8877"]
+# joint_ids = [1]
 pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
 
 for obj_id, joint_id in tqdm.tqdm(zip(door_ids, joint_ids)):
@@ -128,6 +151,10 @@ for obj_id, joint_id in tqdm.tqdm(zip(door_ids, joint_ids)):
     rmses = []
     cosines = []
 
+    flowbot_xs = []
+    flowbot_rmses = []
+    flowbot_cosines = []
+
     past_gt_flow = None
     past_pcd = None
 
@@ -148,17 +175,21 @@ for obj_id, joint_id in tqdm.tqdm(zip(door_ids, joint_ids)):
         nonzero_gt_flowixs = pc_seg == env.render_env.link_name_to_index[target_link]
         gt_flow_nz = gt_flow[nonzero_gt_flowixs]
 
+        # FlowBot
+        pred_flow = flowbot(copy.deepcopy(pc_obs))[:, 0, :]
+        pred_flow_nz = pred_flow[nonzero_gt_flowixs]
+        flowbot_xs.append(angle_ratio)
+        rmse, cos_dist, mag_error = flow_metrics(pred_flow_nz, gt_flow_nz)
+        flowbot_rmses.append(rmse)
+        flowbot_cosines.append(cos_dist)
+
+        # HisPNDiT
         for i in range(trial_cnts):
             with torch.no_grad():
-                # pred_flow = model(
-                #     copy.deepcopy(pc_obs),
-                #     history_pcd=past_pcd,
-                #     history_flow=past_gt_flow,
-                # )[:, 0, :]
                 pred_flow = model(
                     copy.deepcopy(pc_obs),
-                    history_pcd=None,
-                    history_flow=None,
+                    history_pcd=past_pcd,
+                    history_flow=past_gt_flow,
                 )[:, 0, :]
 
             pred_flow_nz = pred_flow[nonzero_gt_flowixs]
@@ -176,22 +207,62 @@ for obj_id, joint_id in tqdm.tqdm(zip(door_ids, joint_ids)):
 
     import matplotlib.pyplot as plt
 
-    plt.scatter(xs, cosines)
+    # ----------Flowbot-------------
+    fig, ax = plt.subplots()
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    ax.scatter(flowbot_xs, flowbot_cosines, c="gray", s=20, edgecolors="black")
     plt.title(f"Door {obj_id}")
     plt.xlabel("Open ratio (%)")
     plt.ylabel("Cosine similarity")
     # plt.ylabel('Mag error (%)')
 
-    plt.savefig(f"./angle_visuals/{obj_id}_{joint_id}_cos.jpg")
+    plt.savefig(f"./angle_visuals/{obj_id}_{joint_id}_cos_flowbot.jpg")
     plt.clf()
 
-    import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
+    fig, ax = plt.subplots()
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
-    plt.scatter(xs, rmses)
+    ax.scatter(flowbot_xs, flowbot_rmses, c="gray", s=20, edgecolors="black")
     plt.title(f"Door {obj_id}")
     plt.xlabel("Open ratio (%)")
     plt.ylabel("RMSE")
     # plt.ylabel('Mag error (%)')
 
-    plt.savefig(f"./angle_visuals/{obj_id}_{joint_id}_rmse.jpg")
+    plt.savefig(f"./angle_visuals/{obj_id}_{joint_id}_rmse_flowbot.jpg")
     plt.clf()
+
+    # ----------HisPNDiT-------------
+    plt.gcf().set_facecolor("none")
+    fig, ax = plt.subplots()
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    ax.scatter(xs, cosines, c="orange", s=20, edgecolors="red", alpha=0.2)
+    plt.title(f"Door {obj_id}")
+    plt.xlabel("Open ratio (%)")
+    plt.ylabel("Cosine similarity")
+    # plt.ylabel('Mag error (%)')
+
+    plt.savefig(f"./angle_visuals/{obj_id}_{joint_id}_cos_flowbothd.jpg")
+    plt.clf()
+
+    # import matplotlib.pyplot as plt
+    fig, ax = plt.subplots()
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    ax.scatter(xs, rmses, c="orange", s=20, edgecolors="red", alpha=0.2)
+    plt.title(f"Door {obj_id}")
+    plt.xlabel("Open ratio (%)")
+    plt.ylabel("RMSE")
+    # plt.ylabel('Mag error (%)')
+
+    plt.savefig(f"./angle_visuals/{obj_id}_{joint_id}_rmse_flowbothd.jpg")
+    plt.clf()
+
+    breakpoint()

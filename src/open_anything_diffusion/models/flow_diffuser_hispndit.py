@@ -458,7 +458,7 @@ class FlowTrajectoryDiffuserInferenceModule_HisPNDiT(L.LightningModule):
         return trajectory.cpu()
 
     @torch.no_grad()
-    def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:  # type: ignore
+    def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0, return_intermediate: bool = False) -> torch.Tensor:  # type: ignore
         # torch.eval()
         self.eval()
         bs = batch.pos.shape[0] // self.sample_size
@@ -493,6 +493,8 @@ class FlowTrajectoryDiffuserInferenceModule_HisPNDiT(L.LightningModule):
             .unsqueeze(1)
         )
         f_pred = normalize_trajectory(f_pred)
+        if return_intermediate:
+            return f_pred, results
         return f_pred
 
     # For winner takes it all evaluation
@@ -634,7 +636,7 @@ class FlowTrajectoryDiffuserSimulationModule_HisPNDiT(L.LightningModule):
     def load_from_ckpt(self, ckpt_file):
         self.model.load_from_ckpt(ckpt_file)
 
-    def forward(self, data, history_pcd=None, history_flow=None) -> torch.Tensor:  # type: ignore
+    def forward(self, data, history_pcd=None, history_flow=None, return_intermediate=False) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
         rgb, depth, seg, P_cam, P_world, pc_seg, segmap = data
         K = self.history_len
@@ -657,6 +659,14 @@ class FlowTrajectoryDiffuserSimulationModule_HisPNDiT(L.LightningModule):
         self.eval()
         with torch.no_grad():
             # trajectory = self.model.faster_predict_step(batch, 0)
-            trajectory = self.model.predict_step(batch, 0)
+            if return_intermediate:
+                trajectory, intermediates = self.model.predict_step(
+                    batch, 0, return_intermediate=True
+                )
+                return trajectory.cpu(), intermediates
+            else:
+                trajectory = self.model.predict_step(
+                    batch, 0, return_intermediate=False
+                )
+                return trajectory.cpu()
         # print("Trajectory prediction shape:", trajectory.shape)
-        return trajectory.cpu()
