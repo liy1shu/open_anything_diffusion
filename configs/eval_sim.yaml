@@ -26,6 +26,7 @@ gui: False
 website: True
 website_port: 9001  # 9001, 9002, 9003
 
+sgp: False  # Use sgp?
 consistency_check: True # True
 history_filter: True # True
 

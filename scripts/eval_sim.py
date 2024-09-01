@@ -315,6 +315,7 @@ def main(cfg):
             all_joint=True,
             available_joints=available_links,
             website=cfg.website,
+            sgp=cfg.sgp,
         )
         sim_trajectories += sim_trajectory
         link_names += [f"{obj_id}_{link}" for link in available_links]

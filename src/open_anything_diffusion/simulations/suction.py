@@ -250,8 +250,6 @@ class PMSuctionSim:
             self.gripper.set_pose(p_teleport, o_teleport)
 
             contact = self.gripper.detect_contact(self.render_env.obj_id)
-            if contact:
-                "Contact at first step????"
             max_steps = 500
             curr_steps = 0
             # self.gripper.set_velocity(-contact_vector * 0.4, [0, 0, 0])
@@ -326,9 +324,13 @@ class PMSuctionSim:
             if self.gui:
                 time.sleep(1 / 240.0)
 
+        return False
+
     def pull_with_constraint(
-        self, direction, n_steps: int = 100, target_link: str = ""
+        self, direction, n_steps: int = 100, target_link: str = "", constraint=True
     ):
+        if not constraint:
+            return self.pull(direction, n_steps)
         # Link info
         link_index = self.render_env.link_name_to_index[target_link]
         info = p.getJointInfo(
@@ -712,7 +714,9 @@ def run_trial(
     save_name: str = "unknown",
     website: bool = False,
     gui: bool = False,
+    sgp: bool = True,
     consistency_check: bool = False,
+    analysis: bool = False,
 ) -> TrialResult:
     torch.manual_seed(42)
     torch.set_printoptions(precision=10)  # Set higher precision for PyTorch outputs
@@ -727,6 +731,17 @@ def run_trial(
 
     sim_trajectory = [0.0] + [0] * (n_steps)  # start from 0.05
     correct_direction_stack = []  # The direction stack
+
+    # For analysis:
+    sgp_signals = [1]  # Record the steps which we switched grasp point
+
+    # For website demo
+    if analysis:
+        visual_all_points = []
+        visual_link_ixs = []
+        visual_grasp_points_idx = []
+        visual_grasp_points = []
+        visual_flows = []
 
     if website:
         # Flow animation
@@ -878,22 +893,31 @@ def run_trial(
     best_flow = pred_flow[link_ixs][best_flow_ixs[best_flow_ix_id]]
     best_point = P_world[link_ixs][best_flow_ixs[best_flow_ix_id]]
     last_step_grasp_point = best_point
+    # For website demo
+    if analysis:
+        visual_all_points.append(P_world)
+        visual_link_ixs.append(link_ixs)
+        visual_grasp_points_idx.append(best_flow_ixs[best_flow_ix_id])
+        visual_grasp_points.append(best_point)
+        visual_flows.append(best_flow)
+
+    if website:
+        segmented_flow = np.zeros_like(pred_flow)
+        segmented_flow[link_ixs] = pred_flow[link_ixs]
+        segmented_flow = np.array(
+            normalize_trajectory(
+                torch.from_numpy(np.expand_dims(segmented_flow, 1))
+            ).squeeze()
+        )
+        animation.add_trace(
+            torch.as_tensor(P_world),
+            torch.as_tensor([P_world]),
+            torch.as_tensor([segmented_flow * 3]),
+            "red",
+        )
 
     if not contact:
         if website:
-            segmented_flow = np.zeros_like(pred_flow)
-            segmented_flow[link_ixs] = pred_flow[link_ixs]
-            segmented_flow = np.array(
-                normalize_trajectory(
-                    torch.from_numpy(np.expand_dims(segmented_flow, 1))
-                ).squeeze()
-            )
-            animation.add_trace(
-                torch.as_tensor(P_world),
-                torch.as_tensor([P_world]),
-                torch.as_tensor([segmented_flow]),
-                "red",
-            )
             if gui:
                 p.stopStateLogging(log_id)
             else:
@@ -925,7 +949,7 @@ def run_trial(
         env.render_env.link_name_to_index[target_link],
         gripper_tip_pos_before,
     )
-    reset = env.pull_with_constraint(best_flow, target_link=target_link)
+    reset = env.pull_with_constraint(best_flow, target_link=target_link, constraint=sgp)
     if not reset:
         env.attach()
         gripper_tip_pos_after = get_world_point(
@@ -1038,15 +1062,16 @@ def run_trial(
 
             # (1) Strategy 1 - Don't change grasp point
             # # (2) Strategy 2 - Change grasp point when leverage difference is large
-            # lev_diff_thres = 0.2
-            # no_movement_thres = -1
+            if sgp:
+                lev_diff_thres = 0.2
+                no_movement_thres = -1
+            else:
+                # Don't use this policy
+                lev_diff_thres = 100
+                no_movement_thres = -1
+                good_movement_thres = 1000
 
-            # Don't use this policy
-            lev_diff_thres = 100
-            no_movement_thres = -1
-            good_movement_thres = 1000
-
-            print(f"Trial {this_step_trial} times")
+            # print(f"Trial {this_step_trial} times")
             if last_step_grasp_point is not None:
                 gripper_tip_pos, _ = p.getBasePositionAndOrientation(
                     env.gripper.body_id
@@ -1068,6 +1093,7 @@ def run_trial(
             #     gripper_movement < no_movement_thres or lev_diff[0] > lev_diff_thres
             # ):  # pcd_dist < 0.05 -> didn't move much....
             if last_step_grasp_point is None or lev_diff[0] > lev_diff_thres:
+                sgp_signals.append(1)
                 env.reset_gripper(target_link)
                 p.stepSimulation(
                     env.render_env.client_id
@@ -1093,6 +1119,14 @@ def run_trial(
                 last_step_grasp_point = best_point  # Grasp a new point
                 # print("new!", last_step_grasp_point)
 
+                # For website demo
+                if analysis:
+                    visual_all_points.append(P_world)
+                    visual_link_ixs.append(link_ixs)
+                    visual_grasp_points_idx.append(best_flow_ixs[best_flow_ix_id])
+                    visual_grasp_points.append(best_point)
+                    visual_flows.append(best_flow)
+
                 if not contact:
                     if website:
                         segmented_flow = np.zeros_like(pred_flow)
@@ -1105,7 +1139,7 @@ def run_trial(
                         animation.add_trace(
                             torch.as_tensor(P_world),
                             torch.as_tensor([P_world]),
-                            torch.as_tensor([segmented_flow]),
+                            torch.as_tensor([segmented_flow * 3]),
                             "red",
                         )
                         if gui:
@@ -1134,11 +1168,20 @@ def run_trial(
 
                 env.attach()
             else:
+                sgp_signals.append(0)
                 best_flow = pred_flow[link_ixs][best_flow_ixs[0]]
                 best_point = P_world[link_ixs][grasp_point_id]
                 last_step_grasp_point = best_point
                 # The original point - don't need to change
                 # print("same:", last_step_grasp_point)
+
+                # For website demo
+                if analysis:
+                    visual_all_points.append(P_world)
+                    visual_link_ixs.append(link_ixs)
+                    visual_grasp_points_idx.append(grasp_point_id)
+                    visual_grasp_points.append(best_point)
+                    visual_flows.append(best_flow)
 
             # Execute the step:
             env.attach()
@@ -1148,7 +1191,9 @@ def run_trial(
                 env.render_env.link_name_to_index[target_link],
                 gripper_tip_pos_before,
             )
-            reset = env.pull_with_constraint(best_flow, target_link=target_link)
+            reset = env.pull_with_constraint(
+                best_flow, target_link=target_link, constraint=sgp
+            )
             if not reset:
                 env.attach()
                 last_step_grasp_point = best_point
@@ -1198,7 +1243,7 @@ def run_trial(
                 animation.add_trace(
                     torch.as_tensor(P_world),
                     torch.as_tensor([P_world]),
-                    torch.as_tensor([segmented_flow]),
+                    torch.as_tensor([segmented_flow * 3]),
                     "red",
                 )
 
@@ -1270,7 +1315,19 @@ def run_trial(
             now_angle=curr_pos,
             metric=metric,
         ),
-        sim_trajectory,
+        sim_trajectory
+        if not analysis
+        else [
+            sim_trajectory,
+            None,
+            None,
+            sgp_signals,
+            visual_all_points,
+            visual_link_ixs,
+            visual_grasp_points_idx,
+            visual_grasp_points,
+            visual_flows,
+        ],
     )
 
 
@@ -1313,6 +1370,14 @@ def run_trial_with_history_filter(
     update_history_step = []  # Record the steps which we update the history
     cc_cnts = []  # Record the consistency failure times we had for each step
     sgp_signals = [1]  # Record the steps which we switched grasp point
+
+    # For website demo
+    if analysis:
+        visual_all_points = []
+        visual_link_ixs = []
+        visual_grasp_points_idx = []
+        visual_grasp_points = []
+        visual_flows = []
 
     if website:
         # Flow animation
@@ -1473,21 +1538,31 @@ def run_trial_with_history_filter(
     best_flow = pred_flow[link_ixs][best_flow_ixs[best_flow_ix_id]]
     best_point = P_world[link_ixs][best_flow_ixs[best_flow_ix_id]]
 
+    # For website demo
+    if analysis:
+        visual_all_points.append(P_world)
+        visual_link_ixs.append(link_ixs)
+        visual_grasp_points_idx.append(best_flow_ixs[best_flow_ix_id])
+        visual_grasp_points.append(best_point)
+        visual_flows.append(best_flow)
+
+    if website:
+        segmented_flow = np.zeros_like(pred_flow)
+        segmented_flow[link_ixs] = pred_flow[link_ixs]
+        segmented_flow = np.array(
+            normalize_trajectory(
+                torch.from_numpy(np.expand_dims(segmented_flow, 1))
+            ).squeeze()
+        )
+        animation.add_trace(
+            torch.as_tensor(P_world),
+            torch.as_tensor([P_world]),
+            torch.as_tensor([segmented_flow * 3]),
+            "red",
+        )
+
     if not contact:
         if website:
-            segmented_flow = np.zeros_like(pred_flow)
-            segmented_flow[link_ixs] = pred_flow[link_ixs]
-            segmented_flow = np.array(
-                normalize_trajectory(
-                    torch.from_numpy(np.expand_dims(segmented_flow, 1))
-                ).squeeze()
-            )
-            animation.add_trace(
-                torch.as_tensor(P_world),
-                torch.as_tensor([P_world]),
-                torch.as_tensor([segmented_flow * 3]),
-                "red",
-            )
             if gui:
                 p.stopStateLogging(log_id)
             else:
@@ -1736,7 +1811,14 @@ def run_trial_with_history_filter(
             best_flow = pred_flow[link_ixs][best_flow_ixs[best_flow_ix_id]]
             best_point = P_world[link_ixs][best_flow_ixs[best_flow_ix_id]]
             last_step_grasp_point = best_point  # Grasp a new point
-            # print("new!", last_step_grasp_point)
+
+            # For website demo
+            if analysis:
+                visual_all_points.append(P_world)
+                visual_link_ixs.append(link_ixs)
+                visual_grasp_points_idx.append(best_flow_ixs[best_flow_ix_id])
+                visual_grasp_points.append(best_point)
+                visual_flows.append(best_flow)
 
             if not contact:
                 if website:
@@ -1786,6 +1868,14 @@ def run_trial_with_history_filter(
                 best_point  # The original point - don't need to change
             )
             # print("same:", last_step_grasp_point)
+
+            # For website demo
+            if analysis:
+                visual_all_points.append(P_world)
+                visual_link_ixs.append(link_ixs)
+                visual_grasp_points_idx.append(grasp_point_id)
+                visual_grasp_points.append(best_point)
+                visual_flows.append(best_flow)
 
         # Execute the step:
         print(
@@ -1954,7 +2044,17 @@ def run_trial_with_history_filter(
         ),
         sim_trajectory
         if not analysis
-        else [sim_trajectory, update_history_step, cc_cnts, sgp_signals],
+        else [
+            sim_trajectory,
+            update_history_step,
+            cc_cnts,
+            sgp_signals,
+            visual_all_points,
+            visual_link_ixs,
+            visual_grasp_points_idx,
+            visual_grasp_points,
+            visual_flows,
+        ],
     )
 
 

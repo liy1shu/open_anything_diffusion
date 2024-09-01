@@ -88,6 +88,8 @@ class FlowHistoryDataset(tgd.Dataset):
         split: Union[pmd.AVAILABLE_DATASET, List[str]],
         randomize_joints: bool = True,
         randomize_camera: bool = True,
+        randomize_size: bool = False,
+        augmentation: bool = False,
         trajectory_len: int = 1,
         special_req: str = None,
         n_points: Optional[int] = 1200,
@@ -100,6 +102,9 @@ class FlowHistoryDataset(tgd.Dataset):
 
         self.randomize_joints = randomize_joints
         self.randomize_camera = randomize_camera
+        self.randomize_size = randomize_size
+        self.augmentation = augmentation
+
         self.trajectory_len = trajectory_len
         self.special_req = special_req
         self.n_points = n_points
@@ -117,21 +122,25 @@ class FlowHistoryDataset(tgd.Dataset):
         trajectory_len,
         special_req=None,
         toy_dataset_id=None,
+        randomize_size=False,
+        augmentation=False,
     ):
         joint_chunk = "rj" if randomize_joints else "sj"
         camera_chunk = "rc" if randomize_camera else "sc"
+        random_size_str = "" if not randomize_size else "_rsz"
+        augmentation_str = "" if not augmentation else "_aug"
         if special_req is None and toy_dataset_id is None:
-            return f"processed_history_{trajectory_len}_{joint_chunk}_{camera_chunk}_random"
+            return f"processed_history_{trajectory_len}_{joint_chunk}_{camera_chunk}_random{random_size_str}{augmentation_str}"
         elif special_req is not None and toy_dataset_id is None:
             # fully_closed
             # half_half
-            return f"processed_history_{trajectory_len}_{joint_chunk}_{camera_chunk}_{special_req}"
+            return f"processed_history_{trajectory_len}_{joint_chunk}_{camera_chunk}_{special_req}{random_size_str}{augmentation_str}"
         elif special_req is None and toy_dataset_id is not None:
             # fully_closed
             # half_half
-            return f"processed_history_{trajectory_len}_{joint_chunk}_{camera_chunk}_toy{toy_dataset_id}_random"
+            return f"processed_history_{trajectory_len}_{joint_chunk}_{camera_chunk}_toy{toy_dataset_id}_random{random_size_str}{augmentation_str}"
         else:
-            return f"processed_history_{trajectory_len}_{joint_chunk}_{camera_chunk}_{special_req}_toy{toy_dataset_id}"
+            return f"processed_history_{trajectory_len}_{joint_chunk}_{camera_chunk}_{special_req}_toy{toy_dataset_id}{random_size_str}{augmentation_str}"
 
     def get_data(self, obj_id: str, seed=None) -> FlowHistory:
         # Initial randomization parameters.
@@ -339,18 +348,36 @@ class FlowHistoryDataset(tgd.Dataset):
         history = history.reshape(-1, history.shape[-1])  #
         flow_history = flow_history.reshape(-1, flow_history.shape[-1])
         # target_point_history = target_point_history.reshape(-1, target_point_history.shape[-1])
+
+        # random size
+        rsz = 1 if not self.randomize_size else np.random.uniform(0.1, 5)
+        # data augmentation
+        flip = 0 if not self.augmentation else np.random.randint(0, 4)  # 4 flip modes
+        flip_mat = torch.tensor(
+            [
+                [[1, 0, 0], [0, 1, 0], [0, 0, 1]],  # Normal
+                [[1, 0, 0], [0, -1, 0], [0, 0, 1]],  # Left, right
+                [[-1, 0, 0], [0, 1, 0], [0, 0, 1]],  # Front, back
+                [[-1, 0, 0], [0, -1, 0], [0, 0, 1]],  # Front back & left right
+            ]
+        ).float()
+
         data = Data(
             id=obj_id,
             num_points=torch.tensor([curr_pos.shape[0]]),  # N: shape of point cloud
-            pos=torch.from_numpy(curr_pos).float(),
             action=torch.from_numpy(action).float(),
-            delta=torch.from_numpy(flow).unsqueeze(1).float(),
+            pos=torch.matmul(torch.from_numpy(curr_pos).float() * rsz, flip_mat[flip]),
+            delta=torch.matmul(
+                torch.from_numpy(flow).unsqueeze(1).float(), flip_mat[flip]
+            ),
+            history=torch.matmul(
+                torch.from_numpy(history).float() * rsz, flip_mat[flip]
+            ),  # N*K, 3
+            flow_history=torch.matmul(
+                torch.from_numpy(flow_history).float(), flip_mat[flip]  # N*K, 3
+            ),  # Snapshot of flow history
             # point=torch.from_numpy(target_point).unsqueeze(1).float(),
             mask=torch.from_numpy(mask_t1).float(),
-            history=torch.from_numpy(history).float(),  # N*K, 3
-            flow_history=torch.from_numpy(  # N*K, 3
-                flow_history
-            ).float(),  # Snapshot of flow history
             # link=joint.child,  # child of the joint gives you the link that the joint is connected to
             K=K,  # length of history
             lengths=torch.as_tensor(lengths).int(),  # size of point cloud

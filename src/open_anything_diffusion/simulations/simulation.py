@@ -197,7 +197,9 @@ def trial_with_prediction(
     gui=False,
     all_joint=False,
     website=False,
+    sgp=True,
     available_joints=None,
+    analysis=False,
 ):
     # pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/convex")
@@ -252,7 +254,9 @@ def trial_with_prediction(
             n_steps=n_step,
             save_name=f"{obj_id}_{joint_name}",
             website=website,
+            sgp=sgp,
             gui=gui,
+            analysis=analysis,
         )
         sim_trajectories.append(sim_trajectory)
         if result.assertion is False:
@@ -277,7 +281,9 @@ def trial_with_diffuser(
     all_joint=False,
     website=False,
     available_joints=None,
+    sgp=True,
     consistency_check=False,
+    analysis=False,
 ):
     # pm_dir = os.path.expanduser("~/datasets/partnet-mobility/raw")
     pm_dir = os.path.expanduser("~/datasets/partnet-mobility/convex")
@@ -330,7 +336,9 @@ def trial_with_diffuser(
             save_name=f"{obj_id}_{joint_name}",
             website=website,
             gui=gui,
+            sgp=sgp,
             consistency_check=consistency_check,
+            analysis=analysis,
         )
         sim_trajectories.append(sim_trajectory)
         if result.assertion is False:
@@ -347,7 +355,7 @@ def trial_with_diffuser(
     return figs, results, sim_trajectories
 
 
-def trial_with_diffuser_history(
+def trial_with_diffuser_history(  # Always use sgp.... (Have already proved it's effect)
     obj_id="41083",
     model=None,
     history_model=None,
@@ -356,6 +364,7 @@ def trial_with_diffuser_history(
     all_joint=False,
     website=False,
     available_joints=None,
+    sgp=True,
     consistency_check=True,
     history_filter=True,
     analysis=False,

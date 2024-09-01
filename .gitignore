@@ -397,5 +397,7 @@ src/open_anything_diffusion/models/wandb
 *.jpeg
 *.pth
 *.csv
+*.pkl
 notebooks/*.csv
 notebooks/*.xlsx
+real_world_pcds/

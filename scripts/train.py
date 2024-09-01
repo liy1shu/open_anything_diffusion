@@ -125,44 +125,44 @@ def main(cfg):
     #     "test": ["9035"],
     # }
 
-    # Full dataset
-    toy_dataset = None
-    # # Door dataset
-    # toy_dataset = {
-    #     "id": "door-full-new",
-    #     "train-train": [
-    #         "8877",
-    #         "8893",
-    #         "8897",
-    #         "8903",
-    #         "8919",
-    #         "8930",
-    #         "8961",
-    #         "8997",
-    #         "9016",
-    #         "9032",
-    #         "9035",
-    #         "9041",
-    #         "9065",
-    #         "9070",
-    #         "9107",
-    #         "9117",
-    #         "9127",
-    #         "9128",
-    #         "9148",
-    #         "9164",
-    #         "9168",
-    #         "9277",
-    #         "9280",
-    #         "9281",
-    #         "9288",
-    #         "9386",
-    #         "9388",
-    #         "9410",
-    #     ],
-    #     "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
-    #     "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
-    # }
+    # # Full dataset
+    # toy_dataset = None
+    # Door dataset
+    toy_dataset = {
+        "id": "door-full-new-noslide",
+        "train-train": [
+            "8877",
+            "8893",
+            "8897",
+            "8903",
+            "8919",
+            "8930",
+            "8961",
+            "8997",
+            "9016",
+            # "9032",   # has slide
+            "9035",
+            "9041",
+            "9065",
+            "9070",
+            "9107",
+            "9117",
+            "9127",
+            "9128",
+            "9148",
+            "9164",
+            "9168",
+            "9277",
+            "9280",
+            "9281",
+            "9288",
+            "9386",
+            "9388",
+            "9410",
+        ],
+        "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+        "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+    }
     # special_req = "half-half"  # "fully-closed"
     special_req = "half-half-01"
     # special_req = None
@@ -175,6 +175,8 @@ def main(cfg):
         n_proc=cfg.resources.n_proc_per_worker,
         seed=cfg.seed,
         history="his" in cfg.model.name,
+        randomize_size=cfg.dataset.randomize_size,
+        augmentation=cfg.dataset.augmentation,
         trajectory_len=trajectory_len,  # Only used when training trajectory model
         special_req=special_req,  # special_req="fully-closed"
         n_repeat=200
@@ -200,6 +202,8 @@ def main(cfg):
             n_proc=cfg.resources.n_proc_per_worker,
             seed=cfg.seed,
             history="his" in cfg.model.name,
+            randomize_size=cfg.dataset.randomize_size,
+            augmentation=cfg.dataset.augmentation,
             trajectory_len=trajectory_len,  # Only used when training trajectory model
             special_req=None,  # special_req="fully-closed"
             toy_dataset=toy_dataset,
@@ -211,6 +215,8 @@ def main(cfg):
             n_proc=cfg.resources.n_proc_per_worker,
             seed=cfg.seed,
             history="his" in cfg.model.name,
+            randomize_size=cfg.dataset.randomize_size,
+            augmentation=cfg.dataset.augmentation,
             trajectory_len=trajectory_len,  # Only used when training trajectory model
             special_req="fully-closed",  # special_req="fully-closed"
             toy_dataset=toy_dataset,

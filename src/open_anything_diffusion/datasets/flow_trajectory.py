@@ -21,6 +21,8 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         n_proc,
         history=False,  ## With / without history
         randomize_camera: bool = True,
+        randomize_size: bool = False,
+        augmentation: bool = False,
         trajectory_len: int = 1,
         seed: int = 42,
         special_req: str = None,
@@ -31,12 +33,16 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.seed = seed
         self.dataset_cls = FlowHistoryDataset if history else FlowTrajectoryPyGDataset
+        if augmentation:  # Augmentation: 4 flip modes
+            n_repeat *= 4
         print(
             self.dataset_cls.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,
                 special_req,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             )
         )
@@ -48,6 +54,8 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 if toy_dataset is None
                 else toy_dataset["train-train"],
                 randomize_camera=randomize_camera,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 trajectory_len=trajectory_len,
                 special_req=special_req,
             ),
@@ -60,6 +68,8 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 randomize_camera,
                 trajectory_len,
                 special_req,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             ),
             n_repeat=n_repeat,
@@ -77,6 +87,8 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 if toy_dataset is None
                 else toy_dataset["train-train"],
                 randomize_camera=randomize_camera,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 trajectory_len=trajectory_len,
                 special_req=special_req,
             ),
@@ -89,6 +101,8 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 randomize_camera,
                 trajectory_len,
                 special_req,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             ),
             n_repeat=1,
@@ -105,6 +119,8 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 if toy_dataset is None
                 else toy_dataset["train-test"],
                 randomize_camera=randomize_camera,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 trajectory_len=trajectory_len,
                 special_req=special_req,
             ),
@@ -117,6 +133,8 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 randomize_camera,
                 trajectory_len,
                 special_req,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             ),
             n_repeat=1,
@@ -131,6 +149,8 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 root=os.path.join(root, "raw"),
                 split="umpnet-test" if toy_dataset is None else toy_dataset["test"],
                 randomize_camera=randomize_camera,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 trajectory_len=trajectory_len,
                 special_req=special_req,
             ),
@@ -143,6 +163,8 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
                 randomize_camera,
                 trajectory_len,
                 special_req,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             ),
             n_repeat=1,
