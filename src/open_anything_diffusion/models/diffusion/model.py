@@ -15,14 +15,6 @@ from diffusers.utils import BaseOutput
 
 @dataclass
 class PointNetOutput(BaseOutput):
-    """
-    The output of [`DGCNN`].
-
-    Args:
-        sample (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
-            The hidden states output from the last layer of the model.
-    """
-
     sample: torch.FloatTensor
 
 
@@ -104,13 +96,15 @@ class PNDiffuser(ModelMixin, ConfigMixin):
         )  # (B, 3 + 64 , N)
         # breakpoint()
         context.x = torch.flatten(context.x.permute(0, 2, 1), start_dim=0, end_dim=1)
-
         x = self.predictor(context)
         x = x.reshape(-1, self.sample_size, 3, self.traj_len).permute(0, 2, 3, 1)
         # breakpoint()
         if not return_dict:
             return (x,)
 
+        # if torch.sum(torch.abs(x[0, :, 0, :2])) > 1e4:
+        #     breakpoint()
+        # print(x[0, :, 0, :2])
         return PointNetOutput(sample=x)
         # return x
 

@@ -1,14 +1,15 @@
 mode: eval
 
 # This is somewhat arbitrary.
-job_type: ${mode}_${dataset.name}_wta
+job_type: ${mode}_${dataset.name}_${model.name} #_wta
 
 defaults:
   # Each of these have their own configuration parameters.
   # - dataset: flowbot
   - dataset: trajectory
-  - model: artflownet
-  # - model: diffuser
+  # - model: diffuser_pn++ #pn++
+  - model: diffuser_pndit
+  # - model: pn++
 
   # A set of inference settings for the model. Note that these may be different
   # from / or a subset of the training settings. This is that we don't have to
@@ -48,7 +49,9 @@ checkpoint:
   # Flowbot half-half
   # run_id: 302dfxe5
   # Flowbot fully closed
-  run_id: 8699d8oe
+  # run_id: 8699d8oe
+  # Flowbot doors
+  # run_id: bjhgfn3n
   # run_id: nxe7uxh4  # flowbot
   # run_id: ah26pym3  # traj 1
   # run_id: l5stf32k  # traj 5
@@ -56,6 +59,21 @@ checkpoint:
   # run_id: m2twtvm7   # traj 10
   # run_id: yiel0na4   # traj 15
   # run_id: zmnrssob  # traj 20
+
+  # run_id: 3hyzie1q  # door half-half diffusion pn++
+  # run_id: riwpizim  # door half-half diffusion dgdit
+  # run_id: 6ftiy79l  # door half-half diffusion dit
+  # run_id: 7be7n97m    # door half-half flowbot
+
+  # run_id: gyhracxt   # fullset half-half flowbot
+  # run_id: 1n4zm8rt   # fullset half-half diffusion dit
+  # run_id: 9v8h8jsn   # fullset half-half diffusion dgdit
+
+  # run_id: libhkzgt   # fullset half-half newsplit flowbot
+  # run_id: 9s85cqw7   # fullset half-half newsplit diffusion dit
+  # run_id: fj50vjmg     # fullset half-half newsplit diffusion pndit
+  run_id: lntyypny     # fullset half-half newsplit diffusion pndit wobn
+
   reference: ${wandb.entity}/${wandb.project}/model-${checkpoint.run_id}:best
 
 resources:
@@ -75,9 +93,14 @@ wandb:
   # group: diffuser1
   # group: flowbot_nomask
   # group: flowbot_mixed
-  group: flowbot_closed
+  # group: flowbot_heldout
+  # group: flowbot_closed
   # reference: /home/yishu/open_anything_diffusion/logs/train_trajectory/2023-09-14/00-11-03/checkpoints/epoch=3819-step=3002520.ckpt  # diffuser1
   # group: traj7  # traj 5 experiment-y2kdp0hq
   # group: traj1
+
+  # group: door-half-half
+  # group: fullset-half-half
+  group: fullset-half-half-newsplit
 
 metric_output_dir: './logs'

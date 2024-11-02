@@ -3,15 +3,25 @@
 import hydra
 import lightning as L
 import omegaconf
-import rpad.partnet_mobility_utils.dataset as rpd
+import pandas as pd
 import rpad.pyg.nets.pointnet2 as pnp
 import torch
 import wandb
 
 from open_anything_diffusion.datasets.flow_trajectory import FlowTrajectoryDataModule
-from open_anything_diffusion.models.flow_trajectory_diffuser import (
-    FlowTrajectoryDiffuserInferenceModule,
+from open_anything_diffusion.models.flow_diffuser_dgdit import (
+    FlowTrajectoryDiffuserInferenceModule_DGDiT,
 )
+from open_anything_diffusion.models.flow_diffuser_dit import (
+    FlowTrajectoryDiffuserInferenceModule_DiT,
+)
+from open_anything_diffusion.models.flow_diffuser_pndit import (
+    FlowTrajectoryDiffuserInferenceModule_PNDiT,
+)
+from open_anything_diffusion.models.flow_trajectory_diffuser import (
+    FlowTrajectoryDiffuserInferenceModule_PN2,
+)
+from open_anything_diffusion.models.modules.dit_models import DGDiT, DiT, PN2DiT
 from open_anything_diffusion.utils.script_utils import PROJECT_ROOT, match_fn
 
 data_module_class = {
@@ -19,7 +29,11 @@ data_module_class = {
 }
 
 inference_module_class = {
-    "trajectory": FlowTrajectoryDiffuserInferenceModule,
+    "diffuser_pn++": FlowTrajectoryDiffuserInferenceModule_PN2,
+    "diffuser_dgdit": FlowTrajectoryDiffuserInferenceModule_DGDiT,
+    "diffuser_dit": FlowTrajectoryDiffuserInferenceModule_DiT,
+    "diffuser_pndit": FlowTrajectoryDiffuserInferenceModule_PNDiT,
+    # "trajectory_diffuser_pndit": FlowTrajectoryDiffusionModule_PNDiT,
 }
 
 
@@ -46,14 +60,50 @@ def main(cfg):
     # dataloaders.
     ######################################################################
     trajectory_len = cfg.inference.trajectory_len
+    toy_dataset = {
+        "id": "door-full-new",
+        "train-train": [
+            "8877",
+            "8893",
+            "8897",
+            "8903",
+            "8919",
+            "8930",
+            "8961",
+            "8997",
+            "9016",
+            "9032",
+            "9035",
+            "9041",
+            "9065",
+            "9070",
+            "9107",
+            "9117",
+            "9127",
+            "9128",
+            "9148",
+            "9164",
+            "9168",
+            "9277",
+            "9280",
+            "9281",
+            "9288",
+            "9386",
+            "9388",
+            "9410",
+        ],
+        "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+        "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+    }
     # Create FlowBot dataset
-    datamodule = FlowTrajectoryDataModule(
+    fully_closed_datamodule = FlowTrajectoryDataModule(
         root="/home/yishu/datasets/partnet-mobility",
         batch_size=1,
         num_workers=30,
         n_proc=2,
         seed=42,
         trajectory_len=1,  # Only used when training trajectory model
+        special_req="fully-closed",
         # toy_dataset = {
         #     "id": "door-1",
         #     "train-train": ["8994", "9035"],
@@ -63,41 +113,28 @@ def main(cfg):
         #     # "train-test": ["8867"],
         #     # "test": ["8867"],
         # }
-        toy_dataset={
-            "id": "door-full-new",
-            "train-train": [
-                "8877",
-                "8893",
-                "8897",
-                "8903",
-                "8919",
-                "8930",
-                "8961",
-                "8997",
-                "9016",
-                "9032",
-                "9035",
-                "9041",
-                "9065",
-                "9070",
-                "9107",
-                "9117",
-                "9127",
-                "9128",
-                "9148",
-                "9164",
-                "9168",
-                "9277",
-                "9280",
-                "9281",
-                "9288",
-                "9386",
-                "9388",
-                "9410",
-            ],
-            "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
-            "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
-        },
+        # toy_dataset=toy_dataset,   # 1) Eval on doors
+        toy_dataset=None,  # 2) Eval on all
+    )
+    randomly_opened_datamodule = FlowTrajectoryDataModule(
+        root="/home/yishu/datasets/partnet-mobility",
+        batch_size=1,
+        num_workers=30,
+        n_proc=2,
+        seed=42,
+        trajectory_len=1,  # Only used when training trajectory model
+        special_req=None,
+        # toy_dataset = {
+        #     "id": "door-1",
+        #     "train-train": ["8994", "9035"],
+        #     "train-test": ["8994", "9035"],
+        #     "test": ["8867"],
+        #     # "train-train": ["8867"],
+        #     # "train-test": ["8867"],
+        #     # "test": ["8867"],
+        # }
+        # toy_dataset=toy_dataset,   # 1) Eval on doors
+        toy_dataset=None,  # 2) Eval on all
     )
 
     ######################################################################
@@ -136,24 +173,70 @@ def main(cfg):
     # We'll also load the weights.
     ######################################################################
 
-    in_channels = 3 * cfg.inference.trajectory_len + cfg.model.time_embed_dim
-    network = pnp.PN2Dense(
-        in_channels=in_channels,
-        out_channels=3 * trajectory_len,
-        p=pnp.PN2DenseParams(),
-    )
+    if "diffuser" in cfg.model.name:
+        if "pn++" in cfg.model.name:
+            in_channels = 3 * cfg.inference.trajectory_len + cfg.model.time_embed_dim
+        else:
+            in_channels = (
+                3 * cfg.inference.trajectory_len
+            )  # Will add 3 as input channel in diffuser
+    else:
+        in_channels = 1 if cfg.inference.mask_input_channel else 0
+
+    if "pn++" in cfg.model.name:
+        network = pnp.PN2Dense(
+            in_channels=in_channels,
+            out_channels=3 * trajectory_len,
+            p=pnp.PN2DenseParams(),
+        ).cuda()
+    elif "dgdit" in cfg.model.name:
+        network = DGDiT(
+            in_channels=in_channels,
+            depth=5,
+            hidden_size=128,
+            patch_size=1,
+            num_heads=4,
+            n_points=cfg.dataset.n_points,
+        ).cuda()
+    elif "pndit" in cfg.model.name:
+        network = PN2DiT(
+            in_channels=in_channels,
+            depth=5,
+            hidden_size=128,
+            patch_size=1,
+            num_heads=4,
+            n_points=cfg.dataset.n_points,
+        ).cuda()
+    elif "dit" in cfg.model.name:
+        network = DiT(
+            in_channels=in_channels + 3,
+            # depth=5,
+            # hidden_size=128,
+            # num_heads=4,
+            depth=12,
+            hidden_size=384,
+            num_heads=6,
+            learn_sigma=True,
+        ).cuda()
 
     # Get the checkpoint file. If it's a wandb reference, download.
     # Otherwise look to disk.
-    checkpoint_reference = cfg.checkpoint.reference
-    if checkpoint_reference.startswith(cfg.wandb.entity):
-        # download checkpoint locally (if not already cached)
-        artifact_dir = cfg.wandb.artifact_dir
-        artifact = run.use_artifact(checkpoint_reference, type="model")
-        ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
-    else:
-        ckpt_file = checkpoint_reference
-    # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory/2023-09-11/19-08-26/checkpoints/epoch=5004-step=3933930.ckpt'
+    # checkpoint_reference = cfg.checkpoint.reference
+    # if checkpoint_reference.startswith(cfg.wandb.entity):
+    #     # download checkpoint locally (if not already cached)
+    #     artifact_dir = cfg.wandb.artifact_dir
+    #     artifact = run.use_artifact(checkpoint_reference, type="model")
+    #     ckpt_file = artifact.get_path("model.ckpt").download(root=artifact_dir)
+    # else:
+    #     ckpt_file = checkpoint_reference
+
+    # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-23/02-47-04/checkpoints/epoch=299-step=235800-val_loss=0.00-weights-only.ckpt'
+    # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dgdit/2024-03-23/02-45-56/checkpoints/epoch=259-step=408720-val_loss=0.00-weights-only.ckpt'
+    # ckpt_file = '/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-03-30/07-12-41/checkpoints/epoch=359-step=199080-val_loss=0.00-weights-only.ckpt'
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-04-23/05-01-44/checkpoints/epoch=469-step=1038700-val_loss=0.00-weights-only.ckpt"
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_dit/2024-05-02/12-35-27/checkpoints/epoch=109-step=243100-val_loss=0.00-weights-only.ckpt"
+    # ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-05-13/05-20-34/checkpoints/epoch=469-step=1038700.ckpt"
+    ckpt_file = "/home/yishu/open_anything_diffusion/logs/train_trajectory_diffuser_pndit/2024-05-13/05-20-34/checkpoints/epoch=129-step=287300-val_loss=0.00-weights-only.ckpt"
 
     # # Load the network weights.
     # ckpt = torch.load(ckpt_file)
@@ -173,11 +256,12 @@ def main(cfg):
     # environment, for instance.
     ######################################################################
 
-    model = inference_module_class[cfg.dataset.name](
+    model = inference_module_class[cfg.model.name](
         network, inference_cfg=cfg.inference, model_cfg=cfg.model
     )
     model.load_from_ckpt(ckpt_file)
     model.eval()
+    model.cuda()
 
     ######################################################################
     # Create the trainer.
@@ -205,17 +289,22 @@ def main(cfg):
     ######################################################################
 
     dataloaders = [
-        # (datamodule.train_val_dataloader(), "train"),
-        (datamodule.train_val_dataloader(bsz=1), "val"),
-        (datamodule.unseen_dataloader(), "test"),
+        # # (datamodule.train_val_dataloader(), "train"),
+        # (fully_closed_datamodule.train_dataloader(bsz=1), "closed_door"),
+        # (randomly_opened_datamodule.unseen_dataloader(bsz=1), "open_door"),
+        # Test means door only
+        # Fullset closed
+        (fully_closed_datamodule.val_dataloader(bsz=1), "val_closed"),
+        (fully_closed_datamodule.unseen_dataloader(bsz=1), "test_closed"),
+        # Fullset open
+        (randomly_opened_datamodule.val_dataloader(bsz=1), "val_open"),
+        (randomly_opened_datamodule.unseen_dataloader(bsz=1), "test_open"),
+        # # Train set
+        # (fully_closed_datamodule.train_val_dataloader(bsz=1), "train_closed"),
+        # (randomly_opened_datamodule.train_val_dataloader(bsz=1), "train_opened"),
     ]
 
     trial_time = 50
-
-    all_objs = (
-        rpd.UMPNET_TRAIN_TRAIN_OBJS + rpd.UMPNET_TRAIN_TEST_OBJS + rpd.UMPNET_TEST_OBJS
-    )
-    id_to_obj_class = {obj_id: obj_class for obj_id, obj_class in all_objs}
 
     all_metrics = []
     all_directions = []
@@ -232,68 +321,41 @@ def main(cfg):
         all_metrics.append(metrics)
         all_directions += directions
 
-    # Scatter plot
-    ys = [d.item() for d in all_directions]
-    xs = sorted(list(range(sample_cnt)) * trial_time)
-    xs = [f"{x}" for x in xs]
-    colors = sorted(["red", "blue", "green"] * trial_time) * sample_cnt
-    import matplotlib.pyplot as plt
+    # # Scatter plot
+    # ys = [d.item() for d in all_directions]
+    # xs = sorted(list(range(sample_cnt)) * trial_time)
+    # xs = [f"{x}" for x in xs]
+    # colors = sorted(["red", "blue", "purple"] * trial_time) * sample_cnt
+    # import matplotlib.pyplot as plt
 
-    plt.figure()
-    plt.scatter(xs, ys, s=5, c=colors[: len(xs)])
-    plt.savefig("./cos_stats.jpeg")
-
-    # for batch, preds in zip(tqdm.tqdm(loader), outputs):
-    #     st = 0
-    #     for data in batch.to_data_list():
-    #         f_pred = preds[st : st + data.num_nodes]
-    #         f_pred = f_pred.reshape(f_pred.shape[0], -1, 3)
-
-    #         # Ignore nan predictions for now...
-    #         if torch.isnan(f_pred).sum() != 0:
-    #             continue
-
-    #         f_ix = data.mask.bool()
-    #         if cfg.dataset.name == "trajectory":
-    #             f_target = data.delta
-    #         else:
-    #             f_target = data.flow
-    #             f_target = f_target.reshape(f_target.shape[0], -1, 3)
-
-    #         f_pred = normalize_trajectory(f_pred)
-    #         f_target = normalize_trajectory(f_target)
-    #         rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
-
-    #         metrics.append(
-    #             {
-    #                 "id": data.id,
-    #                 "obj_class": id_to_obj_class[data.id],
-    #                 "metrics": {
-    #                     "rmse": rmse.cpu().item(),
-    #                     "cos_dist": cos_dist.cpu().item(),
-    #                     "mag_error": mag_error.cpu().item(),
-    #                 },
-    #             }
-    #         )
-
-    #         st += data.num_nodes
-
-    # rows = [
-    #     (
-    #         m["id"],
-    #         m["obj_class"],
-    #         m["metrics"]["rmse"],
-    #         m["metrics"]["cos_dist"],
-    #         m["metrics"]["mag_error"],
-    #     )
-    #     for m in metrics
-    # ]
-    # raw_df = pd.DataFrame(
-    #     rows, columns=["id", "category", "rmse", "cos_dist", "mag_error"]
-    # )
-    # df = raw_df.groupby("category").mean(numeric_only=True)
-    # df.loc["unweighted_mean"] = raw_df.mean(numeric_only=True)
-    # df.loc["class_mean"] = df.mean()
+    # plt.figure()
+    # plt.scatter(xs, ys, s=5, c=colors[: len(xs)])
+    # plt.savefig(f"./{cfg.model.name}_cos_stats.jpeg")
+    eval_set_names = [loader[1] for loader in dataloaders]
+    rows = [
+        (
+            id,
+            m["rmse"],
+            m["cosine_similarity"],
+            m["mag_error"],
+            m["multimodal"],
+            m["pos@0.7"],
+            m["neg@0.7"],
+        )
+        for id, m in zip(eval_set_names, all_metrics)
+    ]
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "category",
+            "rmse",
+            "cos_similarity",
+            "mag_error",
+            "multimodal",
+            "pos@0.7",
+            "neg@0.7",
+        ],
+    )
 
     # out_file = Path(cfg.log_dir) / f"{cfg.dataset.name}_{trajectory_len}_{name}.csv"
     # print(out_file)
@@ -301,11 +363,9 @@ def main(cfg):
     # #     raise ValueError(f"{out_file} already exists...")
     # df.to_csv(out_file, float_format="%.3f")
 
-    # # Log the metrics + table to wandb.
-    # table = wandb.Table(dataframe=df.reset_index())
-    # run.log({f"{name}_metric_table": table})
-
-    breakpoint()
+    # Log the metrics + table to wandb.
+    table = wandb.Table(dataframe=df)
+    run.log({f"eval_wta_metric_table": table})
 
 
 if __name__ == "__main__":

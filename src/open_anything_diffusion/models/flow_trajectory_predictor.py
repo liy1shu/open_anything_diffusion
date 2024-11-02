@@ -112,16 +112,25 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
         # Compute some metrics on flow-only regions.
         rmse, cos_dist, mag_error = flow_metrics(f_pred[f_ix], f_target[f_ix])
 
-        self.log_dict(
-            {
-                f"{mode}/loss": loss,
-                f"{mode}/rmse": rmse,
-                f"{mode}/cosine_similarity": cos_dist,
-                f"{mode}/mag_error": mag_error,
-            },
-            add_dataloader_idx=False,
-            batch_size=len(batch),
-        )
+        if mode == "train_train":
+            self.log_dict(
+                {
+                    f"train/loss": loss,
+                },
+                add_dataloader_idx=False,
+                batch_size=len(batch),
+            )
+        else:
+            self.log_dict(
+                {
+                    f"{mode}/flow_loss": loss,
+                    f"{mode}/rmse": rmse,
+                    f"{mode}/cosine_similarity": cos_dist,
+                    f"{mode}/mag_error": mag_error,
+                },
+                add_dataloader_idx=False,
+                batch_size=len(batch),
+            )
         return f_pred, loss
 
     def configure_optimizers(self):
@@ -133,7 +142,7 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
 
     def training_step(self, batch: tgd.Batch, batch_id):  # type: ignore
         self.train()
-        _, loss = self._step(batch, "train")
+        _, loss = self._step(batch, "train_train")
         return loss
 
     def validation_step(self, batch: tgd.Batch, batch_id, dataloader_idx=0):  # type: ignore
@@ -141,10 +150,10 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
         dataloader_names = ["val", "train", "unseen"]
         name = dataloader_names[dataloader_idx]
         f_pred, loss = self._step(batch, name)
-        return {"preds": f_pred, "loss": loss}
+        return {"preds": f_pred, "loss": loss, "cosine_cache": None}
 
     @staticmethod
-    def make_plots(preds, batch: tgd.Batch) -> Dict[str, go.Figure]:
+    def make_plots(preds, batch: tgd.Batch, cosine_cache=None) -> Dict[str, go.Figure]:
         obj_id = batch.id
         pos = (
             batch.point[:, -2, :].numpy() if batch.point.shape[1] >= 2 else batch.pos
@@ -208,11 +217,11 @@ class FlowTrajectoryTrainingModule(L.LightningModule):
 
 # Implement this for trajectory eval
 class FlowTrajectoryInferenceModule(L.LightningModule):
-    def __init__(self, network, inference_config) -> None:
+    def __init__(self, network, inference_cfg, model_cfg=None) -> None:
         super().__init__()
         self.network = network
-        self.mask_input_channel = inference_config.mask_input_channel
-        self.trajectory_len = inference_config.trajectory_len
+        self.mask_input_channel = inference_cfg.mask_input_channel
+        self.trajectory_len = inference_cfg.trajectory_len
         # self.mpc_step = inference_config.mpc_step
 
     def forward(self, data) -> torch.Tensor:  # type: ignore
@@ -225,33 +234,53 @@ class FlowTrajectoryInferenceModule(L.LightningModule):
 
         return trajectory
 
+    def load_from_ckpt(self, ckpt_file):
+        ckpt = torch.load(ckpt_file)
+        self.load_state_dict(ckpt["state_dict"])
+
+    def predict(self, P_world) -> torch.Tensor:  # type: ignore
+        # Maybe add the mask as an input to the network.
+        data = tgd.Data(
+            pos=torch.from_numpy(P_world).float(),
+            mask=torch.ones(P_world.shape[0]).float(),
+        )
+        batch = tgd.Batch.from_data_list([data])
+        batch = batch.to(self.device)
+        if self.mask_input_channel:
+            batch.x = batch.mask.reshape(len(batch.mask), 1)
+        self.eval()
+        with torch.no_grad():
+            trajectory = self.network(batch)
+        # print("Trajectory prediction shape:", trajectory.shape)
+        return trajectory.reshape(trajectory.shape[0], -1, 3).cpu()
+
     def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:  # type: ignore
         return self.forward(batch)
 
-    # the predict step input is different now, pay attention
-    def predict(self, xyz: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        """Predict the flow for a single object. The point cloud should
-        come straight from the maniskill processed observation function.
+    # # the predict step input is different now, pay attention
+    # def predict(self, xyz: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    #     """Predict the flow for a single object. The point cloud should
+    #     come straight from the maniskill processed observation function.
 
-        Args:
-            xyz (torch.Tensor): Nx3 pointcloud
-            mask (torch.Tensor): Nx1 mask of the part that will move.
+    #     Args:
+    #         xyz (torch.Tensor): Nx3 pointcloud
+    #         mask (torch.Tensor): Nx1 mask of the part that will move.
 
-        Returns:
-            torch.Tensor: Nx3 dense flow prediction
-        """
-        print(xyz, mask)
-        assert len(xyz) == len(mask)
-        assert len(xyz.shape) == 2
-        assert len(mask.shape) == 1
+    #     Returns:
+    #         torch.Tensor: Nx3 dense flow prediction
+    #     """
+    #     print(xyz, mask)
+    #     assert len(xyz) == len(mask)
+    #     assert len(xyz.shape) == 2
+    #     assert len(mask.shape) == 1
 
-        data = tgd.Data(pos=xyz, mask=mask)
-        batch = tgd.Batch.from_data_list([data])
-        batch = batch.to(self.device)
-        self.eval()
-        with torch.no_grad():
-            trajectory = self.forward(batch)
-        return trajectory.reshape(trajectory.shape[0], -1, 3)  # batch * traj_len * 3
+    #     data = tgd.Data(pos=xyz, mask=mask)
+    #     batch = tgd.Batch.from_data_list([data])
+    #     batch = batch.to(self.device)
+    #     self.eval()
+    #     with torch.no_grad():
+    #         trajectory = self.forward(batch)
+    #     return trajectory.reshape(trajectory.shape[0], -1, 3)  # batch * traj_len * 3
 
 
 class FlowSimulationInferenceModule(L.LightningModule):
@@ -259,6 +288,20 @@ class FlowSimulationInferenceModule(L.LightningModule):
         super().__init__()
         self.network = network
         self.mask_input_channel = mask_input_channel
+
+    def __init__(
+        self, network, inference_cfg=None, model_cfg=None, mask_input_channel=None
+    ) -> None:
+        super().__init__()
+        self.network = network
+        if inference_cfg is not None:
+            self.mask_input_channel = inference_cfg.mask_input_channel
+        else:
+            self.mask_input_channel = mask_input_channel
+
+    def load_from_ckpt(self, ckpt_file):
+        ckpt = torch.load(ckpt_file)
+        self.load_state_dict(ckpt["state_dict"])
 
     def forward(self, data) -> torch.Tensor:  # type: ignore
         # Maybe add the mask as an input to the network.
@@ -276,4 +319,4 @@ class FlowSimulationInferenceModule(L.LightningModule):
         with torch.no_grad():
             trajectory = self.network(batch)
         # print("Trajectory prediction shape:", trajectory.shape)
-        return trajectory.reshape(trajectory.shape[0], -1, 3)
+        return trajectory.reshape(trajectory.shape[0], -1, 3).cpu()

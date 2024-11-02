@@ -1,6 +1,7 @@
 ## Diffusion model
 from dataclasses import dataclass
 
+import lightning as L
 import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
@@ -29,10 +30,10 @@ class TrainingConfig:
     device = "cuda"
 
     image_size = 128  # the generated image resolution
-    batch_size = 32
+    batch_size = 16
     # train_batch_size = 16
     # eval_batch_size = 16  # how many images to sample during evaluation
-    num_epochs = 400
+    num_epochs = 1201
     # num_epochs = 10
     gradient_accumulation_steps = 1
     learning_rate = 1e-4
@@ -55,8 +56,9 @@ class TrainingConfig:
     attention_head_dim = 3
 
     # ckpt params
-    read_ckpt_path = "./half_diffusion_fullset_ckpt.pth"
-    save_ckpt_path = "./half_diffusion_fullset_ckpt.pth"
+    read_ckpt_path = "./door_diffusion_ckpt.pth"
+    save_train_ckpt_path = "./door_diffusion_ckpt_trainbest.pth"
+    save_val_ckpt_path = "./door_diffusion_ckpt_valbest.pth"
 
 
 class TrajDiffuser:
@@ -116,7 +118,8 @@ class TrajDiffuser:
     ):  # TODO:currently only support overfit
         ## Train loop
         losses = []
-        min_loss = 10
+        min_val_flow_loss = 1e9
+        min_train_flow_loss = 1e9
         global_step = 0
         # clean_flow = torch.tensor(sample.delta.transpose(0, 2).unsqueeze(0)).to(
         #     self.device
@@ -190,70 +193,44 @@ class TrajDiffuser:
                 self.optimizer.zero_grad()
 
                 loss = loss.detach().item()
-                if epoch % 10 == 0 and loss < min_loss:
-                    min_loss = loss
-                    torch.save(self.model.state_dict(), self.config.save_ckpt_path)
                 losses.append(loss)
                 # print("loss", loss.detach().item(), "lr", lr_scheduler.get_last_lr()[0], "step", epoch)
 
             # Wandb
-            if epoch % 10 == 0:
+            if epoch % 2 == 0:
                 # TODO: multimodal eval
                 # Trainset val Metric
-                mrmse = 0
-                mcos = 0
-                mmag = 0
-                mflow = 0
-                repeat_time = 1
-                for i in range(repeat_time):
-                    # metric = self.predict(train_val_dataloader, vis=False)
-                    metric = self.predict_wta(train_val_dataloader, trial_times=20)
-                    mrmse += metric["rmse"]
-                    mcos += metric["cos_dist"]
-                    mmag += metric["mag_error"]
-                    mflow += metric["flow_loss"]
-                wandb.log({"train/rmse": mrmse / repeat_time}, step=global_step)
-                wandb.log({"train/cos": mcos / repeat_time}, step=global_step)
-                wandb.log({"train/mag": mmag / repeat_time}, step=global_step)
-                wandb.log({"train/flow": mflow / repeat_time}, step=global_step)
-                wandb.log({"train/multimodal": metric["multimodal"]}, step=global_step)
+                # metric = self.predict(train_val_dataloader, vis=False)
+                metric = self.predict_wta(train_val_dataloader, trial_times=20)
+                for metric_name in metric.keys():
+                    if metric_name == "all_directions":
+                        continue
+                    wandb.log({f"train/{metric_name}": metric[metric_name]})
+
+                if metric["best_flow_loss"] < min_train_flow_loss:
+                    min_train_flow_loss = metric["best_flow_loss"]
+                    torch.save(
+                        self.model.state_dict(), self.config.save_train_ckpt_path
+                    )
 
                 # Validation Metric
-                mrmse = 0
-                mcos = 0
-                mmag = 0
-                mflow = 0
-                repeat_time = 1
-                for i in range(repeat_time):
-                    # metric = self.predict(val_dataloader, vis=False)
-                    metric = self.predict_wta(val_dataloader, trial_times=20)
-                    mrmse += metric["rmse"]
-                    mcos += metric["cos_dist"]
-                    mmag += metric["mag_error"]
-                    mflow += metric["flow_loss"]
-                wandb.log({"val/rmse": mrmse / repeat_time}, step=global_step)
-                wandb.log({"val/cos": mcos / repeat_time}, step=global_step)
-                wandb.log({"val/mag": mmag / repeat_time}, step=global_step)
-                wandb.log({"val/flow": mflow / repeat_time}, step=global_step)
-                wandb.log({"val/multimodal": metric["multimodal"]}, step=global_step)
+                # metric = self.predict(val_dataloader, vis=False)
+                metric = self.predict_wta(val_dataloader, trial_times=20)
+                for metric_name in metric.keys():
+                    if metric_name == "all_directions":
+                        continue
+                    wandb.log({f"val/{metric_name}": metric[metric_name]})
 
-                # Test Metric
-                mrmse = 0
-                mcos = 0
-                mmag = 0
-                mflow = 0
-                repeat_time = 1
-                for i in range(repeat_time):
-                    # metric = self.predict(unseen_dataloader, vis=False)
-                    metric = self.predict_wta(unseen_dataloader, trial_times=20)
-                    mrmse += metric["rmse"]
-                    mcos += metric["cos_dist"]
-                    mmag += metric["mag_error"]
-                    mflow += metric["flow_loss"]
-                wandb.log({"unseen/rmse": mrmse / repeat_time}, step=global_step)
-                wandb.log({"unseen/cos": mcos / repeat_time}, step=global_step)
-                wandb.log({"unseen/mag": mmag / repeat_time}, step=global_step)
-                wandb.log({"unseen/flow": mflow / repeat_time}, step=global_step)
+                if metric["best_flow_loss"] < min_val_flow_loss:
+                    min_val_flow_loss = metric["best_flow_loss"]
+                    torch.save(self.model.state_dict(), self.config.save_val_ckpt_path)
+                # # Test Metric
+                # # metric = self.predict(unseen_dataloader, vis=False)
+                # metric = self.predict_wta(unseen_dataloader, trial_times=20)
+                # for metric_name in metric.keys():
+                #     if metric_name == "all_directions":
+                #         continue
+                #     wandb.log({f"test/{metric_name}": metric[metric_name]}, step=global_step)
 
         # Visualize loss
         plt.figure()
@@ -269,6 +246,8 @@ class TrajDiffuser:
         all_mag_error = 0
         all_flow_loss = 0
         all_multimodal = 0
+        all_pos_cosine = 0
+        all_neg_cosine = 0
 
         all_directions = []  # dataloader * trial_times
 
@@ -364,16 +343,22 @@ class TrajDiffuser:
 
                 mag_error = mag_error.reshape(batch_size, -1).mean(-1)
 
+                pos_cosine = torch.sum((cos_dist - 0.7) > 0)
+                neg_cosine = torch.sum((cos_dist + 0.7) < 0)
+                multimodal = 1 if (pos_cosine != 0 and neg_cosine != 0) else 0
+
                 # breakpoint()
                 chosen_id = torch.min(flow_loss, 0)[1]  # index
-                chosen_direction = cos_dist[chosen_id]
-                if chosen_direction > 0:
-                    multimodal = torch.sum((cos_dist + 0.3) < 0) != 0  # < 0.3
-                else:
-                    multimodal = torch.sum((cos_dist - 0.3) > 0) != 0  # > 0.3
+                # chosen_direction = cos_dist[chosen_id]
+                # if chosen_direction > 0:
+                #     multimodal = torch.sum((cos_dist + 0.7) < 0) != 0  # < -0.7
+                # else:
+                #     multimodal = torch.sum((cos_dist - 0.7) > 0) != 0  # > 0.7
 
                 # print(multimodal, rmse[chosen_id], cos_dist[chosen_id], mag_error[chosen_id], flow_loss[chosen_id])
-                all_multimodal += multimodal.item()
+                all_pos_cosine += pos_cosine.item() / trial_times
+                all_neg_cosine += neg_cosine.item() / trial_times
+                all_multimodal += multimodal  # .item()
                 all_rmse += rmse[chosen_id].item()
                 all_cos_dist += cos_dist[chosen_id].item()
                 all_mag_error += mag_error[chosen_id].item()
@@ -382,11 +367,13 @@ class TrajDiffuser:
                 # print(all_rmse)
 
         return {
-            "rmse": all_rmse / valid_sample_count,
-            "cos_dist": all_cos_dist / valid_sample_count,
-            "mag_error": all_mag_error / valid_sample_count,
-            "flow_loss": all_flow_loss / valid_sample_count,
-            "multimodal": all_multimodal / valid_sample_count,
+            "best_rmse": all_rmse / valid_sample_count,
+            "best_cosine": all_cos_dist / valid_sample_count,
+            "best_mag": all_mag_error / valid_sample_count,
+            "best_flow_loss": all_flow_loss / valid_sample_count,
+            "multimodal_ratio": all_multimodal / valid_sample_count,
+            "pos_rate": all_pos_cosine / valid_sample_count,
+            "neg_rate": all_neg_cosine / valid_sample_count,
             "all_directions": all_directions,
         }
 
@@ -450,6 +437,8 @@ class TrajDiffuser:
                     noisy_input = self.noise_scheduler.step(
                         model_output, t, noisy_input
                     ).prev_sample
+
+                    print(model_output)
 
                     if vis:
                         # print(noisy_input.shape)
@@ -540,6 +529,74 @@ class TrajDiffuser:
                 "flow_loss": all_flow_loss / len(val_dataloader),
             }
 
+    def predict_step(self, sample):  # For a single sample
+        batch_size = sample.pos.shape[0] // 1200
+        noisy_input = (
+            torch.randn((batch_size, 3, self.traj_len, 1200)).float().to(self.device)
+        )
+
+        condition = sample.pos
+        condition = condition.reshape(-1, 1200, condition.shape[1]).to(self.device)
+
+        for t in self.noise_scheduler.timesteps:
+            model_output = self.model(noisy_input, t, context=sample).sample
+
+            noisy_input = self.noise_scheduler.step(
+                model_output, t, noisy_input
+            ).prev_sample
+
+        flow_prediction = noisy_input.transpose(1, 3)
+
+        # # Metric
+
+        # new_flow_prediction = normalize_trajectory(
+        #         torch.flatten(flow_prediction, start_dim=0, end_dim=1)
+        #     )
+        # new_flow_prediction = new_flow_prediction.reshape(
+        #     -1, 1200, new_flow_prediction.shape[1], new_flow_prediction.shape[2]
+        # )
+
+        # flow_gt = sample.delta.to(self.device)
+        # flow_gt = flow_gt.reshape(-1, 1200, flow_gt.shape[1], flow_gt.shape[2])
+
+        # flow_gt = normalize_trajectory(
+        #     torch.flatten(flow_gt, start_dim=0, end_dim=1)
+        # )
+        # flow_gt = flow_gt.reshape(
+        #     -1, 1200, flow_gt.shape[1], flow_gt.shape[2]
+        # )
+
+        # n_nodes = torch.as_tensor([d.num_nodes for d in sample.to_data_list()]).to(self.device)  # type: ignore
+        # # breakpoint()
+        # flow_loss = artflownet_loss(flow_prediction, flow_gt, n_nodes)
+
+        # # Compute some metrics on flow-only regions.
+        # rmse, cos_dist, mag_error = flow_metrics(
+        #     new_flow_prediction, flow_gt
+        # )
+
+        # print("flow_loss: ", flow_loss)
+        # print("rmse, cos_dist, mag_error: ", rmse, cos_dist, mag_error)
+        return flow_prediction
+
+
+class TrajDiffuserSimWrapper(L.LightningModule):
+    def __init__(self, diffuser):
+        super().__init__()
+        self.diffuser = diffuser
+
+    def forward(self, data):
+        rgb, depth, seg, P_cam, P_world, pc_seg, segmap = data
+        data = tgd.Data(
+            pos=torch.from_numpy(P_world).float().cuda(),
+            # mask=torch.ones(P_world.shape[0]).float(),
+        )
+        batch = tgd.Batch.from_data_list([data])
+        self.eval()
+        with torch.no_grad():
+            flow = self.diffuser.predict_step(batch)
+        return flow.squeeze().cpu()
+
 
 if __name__ == "__main__":
     config = TrainingConfig()
@@ -548,20 +605,22 @@ if __name__ == "__main__":
         entity="r-pad",
         # entity="leisure-thu-cv",
         project="open_anything_diffusion",
-        # group="diffusion-PN++",
+        group="diffusion-PN++",
+        job_type="train_closed_doors",
         # job_type="overfit_trajectory",
-        group="fullset_mixed_diffusion",
-        job_type="train_diffuser_wta",
+        # group="fullset_mixed_diffusion",
+        # job_type="train_diffuser_wta",
     )
 
     datamodule = FlowTrajectoryDataModule(
         root="/home/yishu/datasets/partnet-mobility",
-        batch_size=32,
+        batch_size=16,
         num_workers=30,
         n_proc=2,
         seed=42,
         trajectory_len=config.traj_len,  # Only used when training trajectory model
-        special_req="half-half"
+        # special_req="half-half",
+        special_req="fully-closed",
         # toy_dataset = {
         #     "id": "door-1",
         #     "train-train": ["8994", "9035"],
@@ -571,12 +630,41 @@ if __name__ == "__main__":
         #     # "train-test": ["8867"],
         #     # "test": ["8867"],
         # }
-        # toy_dataset = {
-        #     "id": "door-full-new",
-        #     "train-train": ["8877", "8893", "8897", "8903", "8919", "8930", "8961", "8997", "9016", "9032", "9035", "9041", "9065", "9070", "9107", "9117", "9127", "9128", "9148", "9164", "9168", "9277", "9280", "9281", "9288", "9386", "9388", "9410"],
-        #     "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
-        #     "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
-        # }
+        toy_dataset={
+            "id": "door-full-new",
+            "train-train": [
+                "8877",
+                "8893",
+                "8897",
+                "8903",
+                "8919",
+                "8930",
+                "8961",
+                "8997",
+                "9016",
+                "9032",
+                "9035",
+                "9041",
+                "9065",
+                "9070",
+                "9107",
+                "9117",
+                "9127",
+                "9128",
+                "9148",
+                "9164",
+                "9168",
+                "9277",
+                "9280",
+                "9281",
+                "9288",
+                "9386",
+                "9388",
+                "9410",
+            ],
+            "train-test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+            "test": ["8867", "8983", "8994", "9003", "9263", "9393"],
+        }
         # toy_dataset = {
         #     "id": "door-single-test",
         #     "train-train": ["8877"],

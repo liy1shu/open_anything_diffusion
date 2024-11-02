@@ -57,9 +57,12 @@ class LightningModuleWithPlots(pl.LightningModule, CanMakePlots):
 
 
 class LogPredictionSamplesCallback(Callback):
-    def __init__(self, logger: WandbLogger, eval_per_n_epoch):
+    def __init__(self, logger: WandbLogger, eval_per_n_epoch, eval_dataloader_lengths):
         self.logger = logger
         self.eval_per_n_epoch = eval_per_n_epoch
+        self.eval_dataloader_lengths = (
+            eval_dataloader_lengths  # [val_len, train_val_len, unseen_len]
+        )
 
     @staticmethod
     def eval_log_random_sample(
@@ -69,9 +72,8 @@ class LogPredictionSamplesCallback(Callback):
         batch,
         prefix: Literal["train", "val", "unseen"],
     ):
-        if outputs is None:  # The diffusion train process don't need graph.
-            return
         preds = outputs["preds"]
+        cosine_cache = outputs["cosine_cache"]
         random_id = np.random.randint(0, len(batch))
         # preds = preds.reshape(
         #     pl_module.batch_size, -1, preds.shape[-2], preds.shape[-1]
@@ -80,12 +82,16 @@ class LogPredictionSamplesCallback(Callback):
             random_id
         ]
         data = batch.get_example(random_id)
-        plots = pl_module.make_plots(preds.cpu(), data.cpu())
+        plots = pl_module.make_plots(preds.cpu(), data.cpu(), cosine_cache)
 
         assert trainer.logger is not None and isinstance(trainer.logger, WandbLogger)
         trainer.logger.experiment.log(
             {
-                **{f"{prefix}/{plot_name}": plot for plot_name, plot in plots.items()},
+                **{
+                    f"{prefix}{'_wta' if plot_name == 'cosine_distribution_plot' else ''}/{plot_name}": plot
+                    for plot_name, plot in plots.items()
+                    if plot is not None
+                },
                 "global_step": trainer.global_step,
             },
             step=trainer.global_step,
@@ -98,9 +104,11 @@ class LogPredictionSamplesCallback(Callback):
 
         # `outputs` comes from `LightningModule.validation_step`
         # which corresponds to our model predictions in this case
-        if batch_idx != 0:
+        if batch_idx != self.eval_dataloader_lengths[dataloader_idx] - 1:
+            # For the flow plots: only log one sample (a sample from the last batch)
+            # For the cosine distribution plot: only log at the end of this eval dataloader (The plot needs to be full)
             return
-        dataloader_names = ["train", "val", "unseen"]
+        dataloader_names = ["val", "train", "unseen"]
         name = dataloader_names[dataloader_idx]
-        if pl_module.current_epoch % self.eval_per_n_epoch == 0:
+        if (pl_module.current_epoch + 1) % self.eval_per_n_epoch == 0:
             self.eval_log_random_sample(trainer, pl_module, outputs, batch, name)

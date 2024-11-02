@@ -385,6 +385,7 @@ wandb_artifacts/
 logs/
 
 # Results
+pretrained/
 results/
 notebooks/artifacts
 notebooks/csv
@@ -396,4 +397,7 @@ src/open_anything_diffusion/models/wandb
 *.jpeg
 *.pth
 *.csv
+*.pkl
 notebooks/*.csv
+notebooks/*.xlsx
+real_world_pcds/

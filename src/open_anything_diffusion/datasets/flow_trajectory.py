@@ -5,6 +5,7 @@ import rpad.partnet_mobility_utils.dataset as rpd
 import torch_geometric.loader as tgl
 from rpad.pyg.dataset import CachedByKeyDataset
 
+from open_anything_diffusion.datasets.flow_history_dataset import FlowHistoryDataset
 from open_anything_diffusion.datasets.flow_trajectory_dataset_pyg import (
     FlowTrajectoryPyGDataset,
 )
@@ -18,23 +19,43 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         batch_size,
         num_workers,
         n_proc,
+        history=False,  ## With / without history
         randomize_camera: bool = True,
-        trajectory_len: int = 5,
+        randomize_size: bool = False,
+        augmentation: bool = False,
+        trajectory_len: int = 1,
         seed: int = 42,
         special_req: str = None,
         toy_dataset: dict = None,
+        n_repeat: int = 100,  # By default, repeat training dataset by 100
     ):
         super().__init__()
         self.batch_size = batch_size
         self.seed = seed
+        self.dataset_cls = FlowHistoryDataset if history else FlowTrajectoryPyGDataset
+        if augmentation:  # Augmentation: 4 flip modes
+            n_repeat *= 4
+        print(
+            self.dataset_cls.get_processed_dir(
+                True,
+                randomize_camera,
+                trajectory_len,
+                special_req,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
+                toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
+            )
+        )
         self.train_dset = CachedByKeyDataset(
-            dset_cls=FlowTrajectoryPyGDataset,
+            dset_cls=self.dataset_cls,
             dset_kwargs=dict(
                 root=os.path.join(root, "raw"),
                 split="umpnet-train-train"
                 if toy_dataset is None
                 else toy_dataset["train-train"],
                 randomize_camera=randomize_camera,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 trajectory_len=trajectory_len,
                 special_req=special_req,
             ),
@@ -42,14 +63,16 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             if toy_dataset is None
             else toy_dataset["train-train"],
             root=root,
-            processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
+            processed_dirname=self.dataset_cls.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,
                 special_req,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             ),
-            n_repeat=100,
+            n_repeat=n_repeat,
             # n_repeat=1,
             n_workers=num_workers,
             n_proc_per_worker=n_proc,
@@ -57,13 +80,15 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         )
 
         self.train_val_dset = CachedByKeyDataset(
-            dset_cls=FlowTrajectoryPyGDataset,
+            dset_cls=self.dataset_cls,
             dset_kwargs=dict(
                 root=os.path.join(root, "raw"),
                 split="umpnet-train-train"
                 if toy_dataset is None
                 else toy_dataset["train-train"],
                 randomize_camera=randomize_camera,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 trajectory_len=trajectory_len,
                 special_req=special_req,
             ),
@@ -71,11 +96,13 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             if toy_dataset is None
             else toy_dataset["train-train"],
             root=root,
-            processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
+            processed_dirname=self.dataset_cls.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,
                 special_req,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             ),
             n_repeat=1,
@@ -85,13 +112,15 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         )
 
         self.val_dset = CachedByKeyDataset(
-            dset_cls=FlowTrajectoryPyGDataset,
+            dset_cls=self.dataset_cls,
             dset_kwargs=dict(
                 root=os.path.join(root, "raw"),
                 split="umpnet-train-test"
                 if toy_dataset is None
                 else toy_dataset["train-test"],
                 randomize_camera=randomize_camera,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 trajectory_len=trajectory_len,
                 special_req=special_req,
             ),
@@ -99,11 +128,13 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             if toy_dataset is None
             else toy_dataset["train-test"],
             root=root,
-            processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
+            processed_dirname=self.dataset_cls.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,
                 special_req,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             ),
             n_repeat=1,
@@ -113,11 +144,13 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
         )
 
         self.unseen_dset = CachedByKeyDataset(
-            dset_cls=FlowTrajectoryPyGDataset,
+            dset_cls=self.dataset_cls,
             dset_kwargs=dict(
                 root=os.path.join(root, "raw"),
                 split="umpnet-test" if toy_dataset is None else toy_dataset["test"],
                 randomize_camera=randomize_camera,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 trajectory_len=trajectory_len,
                 special_req=special_req,
             ),
@@ -125,11 +158,13 @@ class FlowTrajectoryDataModule(L.LightningDataModule):
             if toy_dataset is None
             else toy_dataset["test"],
             root=root,
-            processed_dirname=FlowTrajectoryPyGDataset.get_processed_dir(
+            processed_dirname=self.dataset_cls.get_processed_dir(
                 True,
                 randomize_camera,
                 trajectory_len,
                 special_req,
+                randomize_size=randomize_size,
+                augmentation=augmentation,
                 toy_dataset_id=None if toy_dataset is None else toy_dataset["id"],
             ),
             n_repeat=1,

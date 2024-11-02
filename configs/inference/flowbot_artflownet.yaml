@@ -1,3 +1,0 @@
-name: flowbot_artflownet
-batch_size: 64
-mask_input_channel: False
